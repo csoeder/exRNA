@@ -289,7 +289,7 @@ These unfiltered alignments are called "Raw"
 samtools sort -n {input.raw_bam} | samtools fixmate -m - - | samtools sort - | samtools markdup {params.dup_flg} - - | samtools view -bh {params.quality} | /nas/longleaf/home/csoeder/modules/bamaddrg/bamaddrg -b - -s {wildcards.sample}  > {output.multi_bam} 
 ```
 
-The raw alignments were filtered for mapping/sequencing quality (`-q 20 -F 0x0100 -F 0x0200 -F 0x0300 -F 0x04`), and deduplication (`-rS`). ~~This filtered alignment is called "Multi". To exclude multimapping reads, the alignments were filtered to only those with the tag `IH:i:1` (mapsplice) or `NH:i:1` (otherwise).~~ We can just specify not counting them.
+The raw alignments were filtered for mapping/sequencing quality (`-q 20 -F 0x0100 -F 0x0200 -F 0x0300 -F 0x04`), and deduplication (`-rS`). Multimappers are removed at the counting step.
 
 ```{bash, eval =F, echo = F}
 The number of loci Nmap a read maps to is given by NH:i:Nmap field. Value of 1 corresponds to
@@ -630,7 +630,7 @@ featureCounts {flug_str} {params.fc_params} -t exon -g gene_id -F GTF -a <(cat {
 
 ## Kraken
 
-Many reads ultimately did not align in proper pairs; these were extracted and their metagenomics investigated using Kraken2 [@serfsdf]. The "Standard" index (10/9/2023) was downloaded from Ben Langmead's repository (<https://benlangmead.github.io/aws-indexes/k2>)
+Many reads ultimately did not align in proper pairs; these were extracted and their metagenomics investigated using Kraken2 [@Wood2014]. The "Standard" index (10/9/2023) was downloaded from Ben Langmead's repository (<https://benlangmead.github.io/aws-indexes/k2>)
 
 ```{bash echo=TRUE, eval=F}
 kraken2 --memory-mapping --use-names --db {db_ndx} --report {output.krakenation} --paired {input.read1} {input.read2} > /dev/null

@@ -3,8 +3,7 @@ configfile: 'config.yaml'
 from Bio import SeqIO
 from subprocess import CalledProcessError
 # module load python/3.9.6 sratoolkit samtools freebayes vcftools bwa bedtools r/4.2.2 rstudio subread star hisat2 kraken fastx_toolkit
-#PATH=$PATH:/nas/longleaf/home/csoeder/modules/vcflib/bin:/nas/longleaf/home/csoeder/modules/parallel/bin
-
+# module load gcc/11.2.0
 
 sample_by_name = {c['name'] : c for c in config['data_sets']}
 ref_genome_by_name = { g['name'] : g for g in config['reference_genomes']}
@@ -43,6 +42,32 @@ def return_file_relpath_by_sampname(wildcards):
 	filesin = return_filename_by_sampname(sampname)
 	pathsout = ["".join([pathprefix, fq]) for fq in filesin]
 	return pathsout
+
+
+
+
+
+rule all:
+	input: 
+		pdf_out="results/exRNA2023_results.pdf",
+	params:
+		runmem_gb=1,
+		runtime="0:01:00",
+		cores=1,
+	run:
+		shell(""" mkdir -p results/figures/; touch results/figures/null.png; for fig in results/figures/*png; do mv $fig $(echo $fig| rev | cut -f 2- -d . | rev ).$(date +%d_%b_%Y).png; done;  rm results/figures/null.*.png; """)
+		shell(""" mkdir -p results/figures/supp/ ; touch results/figures/supp/null.png; for fig in results/figures/supp/*png; do mv $fig $(echo $fig| rev | cut -f 2- -d . | rev ).$(date +%d_%b_%Y).png; done; rm results/figures/supp/null.*.png; """)
+
+		shell(""" mkdir -p results/tables/ ; touch results/tables/null.tmp ; for phial in $(ls -p results/tables/ | grep -v /); do pre=$(echo $phial | rev | cut -f 2- -d . | rev ); suff=$(echo $phial | rev | cut -f 1 -d . | rev ); mv results/tables/$phial results/tables/$pre.$(date +%d_%b_%Y).$suff; done ; rm results/tables/null.*.tmp; """)
+		shell(""" mkdir -p results/tables/supp/ ; touch results/tables/supp/null.tmp ; for phial in $(ls -p results/tables/supp/ | grep -v /); do pre=$(echo $phial | rev | cut -f 2- -d . | rev ); suff=$(echo $phial | rev | cut -f 1 -d . | rev ); mv results/tables/supp/$phial results/tables/supp/$pre.$(date +%d_%b_%Y).$suff; done ; rm results/tables/supp/null.*.tmp; """)
+
+		shell(""" mv results/exRNA2023_results.pdf results/exRNA2023_results.$(date +%d_%b_%Y).pdf """)
+		shell(""" tar cf exRNA_results.$(date +%d_%b_%Y).tar results/ """)
+
+
+
+
+
 
 ############################################################################  
 #######		background data, eg reference genomes 	####
@@ -905,7 +930,7 @@ rule write_report:
 #		reference_annotation_summary = [""],
 		sequenced_reads_summary=["data/summaries/intermediate/FASTP/all.sequenced_reads.dat", "data/summaries/intermediate/read_lengths/all.sequenced_lengths.dat"],
 		aligned_reads_summary = expand("data/summaries/intermediate/BAMs/all.vs_{genome}.summary", genome=["hg38","humanRibo","humanTrna","mycoG37","myco1654_15",]),#"mapspliceUniq","mapspliceRando"]),
-		the_countz = expand("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.{aligner}{filt}.{count_params}.counts.summary",aligner = ["star", "mapsplice","hisat"], filt = ["Raw", "Multi", "Uniq"], count_params = ["M","B","MB","z"] ),
+		the_countz = expand("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.{aligner}{filt}.{count_params}.counts.summary",aligner = ["star", "hisat"], filt = ["Raw", "Multi", "Uniq"], count_params = ["M","B","MB","z"] ),
 		kraken = ["data/intermediate/kraken/all.hisatRaw.krakenated"],
 		myco = ["data/intermediate/mycoplasma/all.mycoG37_genes.full_report.bed"],
 	output:
@@ -917,33 +942,14 @@ rule write_report:
 	message:
 		"writing up the results.... "
 	run:
-		pandoc_path="/nas/longleaf/apps/rstudio/1.0.136/bin/pandoc"
+		pandoc_path="/nas/longleaf/apps/rstudio/2021.09.2-382/bin/pandoc"
 		pwd = subprocess.check_output("pwd",shell=True).decode().rstrip()+"/"
 		shell("""mkdir -p results/figures/supp/ results/tables/supp/""")
-		shell(""" R -e "setwd('{pwd}');Sys.setenv(RSTUDIO_PANDOC='{pandoc_path}')" -e  "peaDubDee='{pwd}'; rmarkdown::render('scripts/HumanDenovos.Rmd',output_file='{pwd}{output.pdf_out}')"  """)
+		shell(""" R -e "setwd('{pwd}');Sys.setenv(RSTUDIO_PANDOC='{pandoc_path}')" -e  "peaDubDee='{pwd}'; rmarkdown::render('scripts/exRNA_riboDepletion.Rmd',output_file='{pwd}{output.pdf_out}')"  """)
 #		shell(""" tar cf results.tar results/ """)
 
 
 
-
-
-
-rule all:
-	input: 
-		pdf_out="results/exRNA2023_results.pdf",
-	params:
-		runmem_gb=1,
-		runtime="0:01:00",
-		cores=1,
-	run:
-		shell(""" mkdir -p results/figures/; touch results/figures/null.png; for fig in results/figures/*png; do mv $fig $(echo $fig| rev | cut -f 2- -d . | rev ).$(date +%d_%b_%Y).png; done;  rm results/figures/null.*.png; """)
-		shell(""" mkdir -p results/figures/supp/ ; touch results/figures/supp/null.png; for fig in results/figures/supp/*png; do mv $fig $(echo $fig| rev | cut -f 2- -d . | rev ).$(date +%d_%b_%Y).png; done; rm results/figures/supp/null.*.png; """)
-
-		shell(""" mkdir -p results/tables/ ; touch results/tables/null.tmp ; for phial in $(ls -p results/tables/ | grep -v /); do pre=$(echo $phial | rev | cut -f 2- -d . | rev ); suff=$(echo $phial | rev | cut -f 1 -d . | rev ); mv results/tables/$phial results/tables/$pre.$(date +%d_%b_%Y).$suff; done ; rm results/tables/null.*.tmp; """)
-		shell(""" mkdir -p results/tables/supp/ ; touch results/tables/supp/null.tmp ; for phial in $(ls -p results/tables/supp/ | grep -v /); do pre=$(echo $phial | rev | cut -f 2- -d . | rev ); suff=$(echo $phial | rev | cut -f 1 -d . | rev ); mv results/tables/supp/$phial results/tables/supp/$pre.$(date +%d_%b_%Y).$suff; done ; rm results/tables/supp/null.*.tmp; """)
-
-		shell(""" mv results/exRNA2023_results.pdf results/exRNA2023_results.$(date +%d_%b_%Y).pdf """)
-		shell(""" tar cf exRNA_results.$(date +%d_%b_%Y).tar results/ """)
 
 
 
