@@ -1,0 +1,1311 @@
+---
+title: "exRNA - impact of ribosome depletion"
+author: "Charlie Soeder"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 5
+    number_sections: true
+  html_document: default
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_knit$set(root.dir='/proj/cdjones_lab/csoeder/exrna_Dec2023/')
+#knitr::opts_knit$set(root.dir=peaDubDee)
+library("tidyverse")
+#require(devtools)
+#install_version("ggplot2", version = "3.1.0", repos = "http://cran.us.r-project.org")
+library("knitr")
+library("gt")
+library("yaml")
+library("ggbio")
+library("readr")
+library("reshape2")
+#library("ggdendro")
+#library("dendextend")
+#library("grid")
+#library("gridExtra")
+#library("ComplexHeatmap")
+#library("rtracklayer")
+
+#library("sitools")
+
+# gotta set the working directory.....
+```
+
+```{r include=FALSE}
+
+human_readable_croncher <- function(num_in) {
+	dig <- 3
+	num_out <- formatC(num_in, digits=dig, format='g') %>% as.numeric() %>% sitools::f2si()
+	return(num_out)
+}
+
+bam_summary_loader <- function(filename, aligner="bwa", reference='dm6'){
+	
+	tmp.df <- read_delim(filename, "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE)
+	names(tmp.df) <- c("sample","measure","value")
+	
+	tmp.df$sample <- as.factor(tmp.df$sample)
+	tmp.df$measure <- as.factor(tmp.df$measure)
+	tmp.df$aligner <- as.factor(aligner)
+	tmp.df$reference <- as.factor(reference)
+	
+	return(tmp.df)
+	
+}
+
+
+fig_cnt <- 0 
+tbl_cnt <- 0 
+
+```
+
+# Introduction
+
+# Materials, Methods, Data, Software
+
+```{r include=FALSE}
+
+trammel <- read_yaml("config.yaml")
+
+```
+
+## Reference Genomes
+
+```{r include=FALSE, echo=FALSE}
+ref_genomes.cfg.df <- plyr::ldply(trammel$reference_genomes, data.frame)
+
+reference_genomes_summary.df  <- read_delim("data/summaries/reference_genomes/reference_genomes.summary", "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE)
+
+names(reference_genomes_summary.df) <- c("refGenome","measure","value")
+
+reference_genomes_summary.df <- inner_join(ref_genomes.cfg.df,reference_genomes_summary.df,by=c("name"="refGenome")) 
+
+```
+
+The hg38 reference genome was downloaded in FASTA format from UCSC Genome Browser. Human ribosomal sequences were downloaded from BioMart (...)
+
+```{r echo=FALSE}
+tbl_cnt <- tbl_cnt +1
+
+reference_genomes_summary.gt <- reference_genomes_summary.df %>% select(c("name", "species", "measure", "value")) %>% spread(key=measure, value = value) %>% group_by(species) %>% gt()  %>% tab_header(title=paste("Table ",tbl_cnt, ". Size and Consolidation of Reference Genomes", sep = ""), subtitle=" ") %>%   fmt_number(columns = c(number_contigs, number_bases), suffixing = TRUE, decimals=0) %>% cols_label(name = " ", number_bases = "# bases", number_contigs= "# contigs")
+
+reference_genomes_summary.gt
+
+write(reference_genomes_summary.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"_refGenomeSummary.html", sep=""))
+
+```
+
+Human ribosomal sequence was downloaded from Biomart (dataset GRCh38.p14; filter gene type rRNA; attributes include cDNA sequences; unique results only ). Human tRNA sequences were downloaded from rnacentral.org ( (so_rna_type_name:"TRNA" AND TAXONOMY:"9606") AND entry_type:"Sequence" )
+
+## Sequenced Reads
+
+```{r include=FALSE, echo = FALSE}
+data_sets.df <- plyr::ldply(trammel$data_sets, data.frame)
+data_sets.df$name <- as.factor(data_sets.df$name)
+data_sets.df$paired<- as.factor(data_sets.df$paired)
+data_sets.df$depleted<- as.factor(data_sets.df$depleted)
+data_sets.df$class<- as.factor(data_sets.df$class)
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+tbl_cnt <- tbl_cnt + 1 
+
+samples_per_experiment.gt <- data_sets.df %>% filter(subgroups=='all') %>%  select(c(name,depleted, class)) %>% group_by(depleted, class) %>% summarise(count = n()) %>% spread(key=depleted, value = count) %>% gt()  %>% tab_header(title=paste("Table ",tbl_cnt, "a.  Samples per Treatment", sep = ""), subtitle="number of samples sequenced per experiment") %>%  tab_spanner(label = "ribosome depletion", columns = c("TRUE","FALSE"))  %>% cols_label("class" = "RNA Protocol", "FALSE" = "without", "TRUE"="with")
+samples_per_experiment.gt
+write(samples_per_experiment.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"_samples_per_experiment.html", sep=""))
+
+```
+
+```{r echo=FALSE, include = F}
+
+
+
+
+
+
+sample_list.gt <- data_sets.df %>% filter(subgroups=='all') %>%  select(c(name,depleted, class)) %>% group_by(class, depleted) %>% summarise(samps = paste0(name, collapse = "\n")) %>% ungroup() %>% spread(key=depleted, value = samps) %>% gt() %>% tab_header(title=paste("Table ",tbl_cnt, "b.  Full Sample List", sep = ""), subtitle=" ")  %>%  tab_spanner(label = "ribosome depletion", columns = c("TRUE","FALSE"))  %>% cols_label("FALSE" = "without", "TRUE"="with", "class" = "")
+sample_list.gt
+write(sample_list.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"b_allSamples.html", sep=""))
+
+
+
+```
+
+### Pre-processing
+
+```{r echo=FALSE, include=FALSE}
+fastp_summary <- read_delim("data/summaries/intermediate/FASTP/all.sequenced_reads.dat", "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE)
+names(fastp_summary ) <- c("name","type","measure","value")
+fastp_summary$name <- as.factor(fastp_summary$name)
+fastp_summary$type <- as.factor(fastp_summary$type)
+fastp_summary$measure <- as.factor(fastp_summary$measure)
+```
+
+```{r echo=FALSE, include=FALSE}
+filtration_stats <- inner_join(fastp_summary %>%  filter(type=="prefiltered" | type == 'postfiltered'), data_sets.df, by=c("name"="name"))
+filtration_stats$type <- factor(filtration_stats$type, levels=c("prefiltered", "postfiltered"))
+```
+
+These reads were preprocessed with FASTP [@Chen2018] for quality control and analytics.
+
+```         
+common_params = "--json data/intermediate/sequence/{samplename}/{samplename}.True.json",# --html meta/FASTP/{samplename}.html"
+pe_params = "--detect_adapter_for_pe --correction"
+```
+
+```{bash echo=TRUE, eval=F}
+ /nas/longleaf/home/csoeder/modules/fastp/fastp {params.common_params} {params.pe_params} --in1 {input.fileIn[0]} --out1 {output.fileOut[0]} --in2 {input.fileIn[1]} --out2 {output.fileOut[1]} 
+
+```
+
+Starting FASTQ files contained a total of $`r sum( filtration_stats %>% filter(type =='prefiltered') %>% filter(measure=='total_reads') %>% select(value) ) %>% human_readable_croncher() `$ reads; after QC, this dropped to $`r sum( filtration_stats %>% filter(type =='postfiltered') %>% filter(measure=='total_reads') %>% select(value) ) %>% human_readable_croncher() `$.
+
+```{r echo=FALSE}
+pre_post_counts <- filtration_stats %>% filter(measure=='total_reads') %>%  group_by(type)  %>%  summarise(minimum = min(value), average=mean(value) , maximum = max(value)) 
+retention_percent <- filtration_stats %>% filter(measure=='total_reads') %>%  filter(subgroups=="all")%>% select(c(name,type,value)) %>%  spread(type,value) %>% mutate(retention=100*postfiltered/prefiltered) %>%  summarise(type='percent retention', minimum = min(retention), average=mean(retention) , maximum = max(retention))
+```
+
+```{r echo=FALSE}
+
+tbl_cnt <- tbl_cnt+ 1 
+preprocessingReadRetention.gt <- rbind(pre_post_counts, retention_percent)  %>% gt()  %>% tab_header(title=paste("Table ",tbl_cnt, ". Read Retention Rate during Preprocessing", sep = ""), subtitle= md("&nbsp;")) %>%  fmt_number(columns = c(minimum, average,maximum),suffixing = TRUE, decimals=0) %>% cols_label(type=" ")
+
+
+preprocessingReadRetention.gt
+write(preprocessingReadRetention.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"_PreprocessingReadRetention.html", sep=""))
+
+
+
+```
+
+Filtration also increased the read quality, as seen in the increase in the fraction of reads with an average quality score \> 30:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+fig_cnt <-fig_cnt +  1 
+filtration_stats.qual.gg <- ggplot(filtration_stats %>% filter(measure == "q30_rate")) + geom_line(aes(group=name, x=type,y=100*value)) +  geom_point(aes(x=type, y = 100*value, color=class, shape =depleted)) + labs(title = paste( "Figure ", fig_cnt, ". Percent of Reads with a mean QUAL > 30", sep = ""), y="Percent QUAL > 30", x="") + theme_clear() 
+
+filtration_stats.qual.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_QualityImprovement.png", sep=""))
+filtration_stats.qual.gg 
+dev.off()
+
+
+```
+
+Duplicate reads were also detected; these will be filtered during alignment:
+
+```{r echo=FALSE, include=FALSE}
+dupe_stats <- inner_join(fastp_summary %>% filter(type=='duplication' & measure =='rate') %>%  mutate(percent=value*100) %>% select(c(name,percent)), data_sets.df, by=c("name"="name"))
+```
+
+```{r echo=FALSE, include=TRUE}
+tbl_cnt <- tbl_cnt + 1
+
+duplicationStats.gt <- dupe_stats %>% group_by(class)%>%  summarise(minimum = min(percent), average=mean(percent), median=median(percent) , maximum = max(percent)) %>% gt() %>% tab_header(title=paste("Table ",tbl_cnt, ". Percentage Duplication", sep = ""), subtitle="FASTP estimate") %>% fmt_number(columns=c(minimum,median,average,maximum), decimals=1, ) %>% cols_label("class"="")
+
+duplicationStats.gt
+
+write(duplicationStats.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"_duplicationStats.html", sep=""))
+
+
+```
+
+```{r echo=FALSE, include=TRUE}
+fig_cnt <- fig_cnt + 1 
+dupe_stats.hist.gg <- ggplot(dupe_stats) + geom_histogram(aes(x=percent, fill=depleted), position = "stack", bins=15)+ geom_histogram(aes(x=percent), color = "black", alpha=0, bins=15) + labs(title=paste("Figure ", fig_cnt, ". Duplication Histogram", sep = ""), x="Read Duplication Rate (FASTP estimate)", y="Number Samples") + theme_clear()
+dupe_stats.hist.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_DuplicationHist.png", sep=""))
+dupe_stats.hist.gg 
+dev.off()
+
+```
+
+### Size distribution
+
+```{r echo=FALSE, include=FALSE, warning=F, message=F}
+
+all_sequenced_lengths.df <- read_delim("data/summaries/intermediate/read_lengths/all.sequenced_lengths.dat", delim = "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE)
+names(all_sequenced_lengths.df) <-c("sample", "pair", "length", "count")
+all_sequenced_lengths.df %<>% group_by(sample, length) %>% summarise(count = sum(count))
+all_sequenced_lengths.df %<>% spread(key = length, value = count, fill = 1) %>% gather(key = "length", value = "count", -c("sample")) %>% mutate(length = as.numeric(length))
+
+all_sequenced_lengths.aug.df <- inner_join(data_sets.df %>% filter(subgroups == "all")%>% select(c(name, depleted, class)), all_sequenced_lengths.df, by = c("name"="sample"))
+
+```
+
+```{r echo=FALSE, include=T, warning=F, message=F}
+
+fig_cnt <- fig_cnt + 1
+
+all_sequenced_lengths.aug.gg<- ggplot(all_sequenced_lengths.aug.df %>% mutate(depleted =  recode(as.factor(depleted), "FALSE" = "Without", "TRUE"= "With")) ) + geom_line(aes(x=length, y = count, group = name, color = class)) + facet_grid(.~depleted) + scale_y_log10() + labs(title=paste("Figure ", fig_cnt, ". Size Distribution of Sequenced Reads", sep = ""), x="Number of Reads (log scale)", y="Read Length (nucleotides) ", subtitle = "post-FASTP cleanup" )   + theme_clear() 
+
+
+
+
+
+all_sequenced_lengths.aug.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_ReadSizeDistribution.png", sep=""))
+all_sequenced_lengths.aug.gg 
+dev.off()
+
+
+
+```
+
+## Mapped Reads
+
+Reads were mapped with three different splice-aware aligners: Mapsplice2 [@Wang2010], STAR [@Dobin2013], and HISAT2 [@Kim2019]
+
+To modernize the Mapsplice code (v2.1.8), the source was automatically refactored with the 2to3 utility and compiled with make using gcc 4.1.2; it was run with default parameters. STAR (v2.7.7a) was run with an annotation-free genome index.
+
+```{bash echo=TRUE, eval=F}
+star --runThreadN {params.cores} --runMode alignReads --genomeDir utils/STAR_indicies/{wildcards.ref_genome}/ --readFilesIn {input.reads_in} --outFileNamePrefix data/intermediate/mapped_reads/starRaw/{wildcards.sample}.vs_{wildcards.ref_genome}.starRaw
+
+```
+
+HISAT2 (v2.2.1) was run with default parameters.
+
+```{bash echo=TRUE, eval=F}
+hisat2 -p {params.cores} -k 5 --new-summary --summary-file {output.summary} -x utils/HISAT2_indicies/{wildcards.ref_genome} {readsIn} -S data/intermediate/mapped_reads/hisatRaw/{wildcards.sample}.vs_{wildcards.ref_genome}.hisatRaw.sam
+
+```
+
+These unfiltered alignments are called "Raw"
+
+```         
+    dup_flg = "-rS ",#remove marked duplicates; remove secondary alignments of marked duplicates
+    quality="-q 20 -F 0x0200 -F 0x04 -f 0x0002",
+```
+
+```{bash echo=TRUE, eval=F}
+
+samtools sort -n {input.raw_bam} | samtools fixmate -m - - | samtools sort - | samtools markdup {params.dup_flg} - - | samtools view -bh {params.quality} | /nas/longleaf/home/csoeder/modules/bamaddrg/bamaddrg -b - -s {wildcards.sample}  > {output.multi_bam} 
+```
+
+The raw alignments were filtered for mapping/sequencing quality (`-q 20 -F 0x0100 -F 0x0200 -F 0x0300 -F 0x04`), and deduplication (`-rS`). ~~This filtered alignment is called "Multi". To exclude multimapping reads, the alignments were filtered to only those with the tag `IH:i:1` (mapsplice) or `NH:i:1` (otherwise).~~ We can just specify not counting them.
+
+```{bash, eval =F, echo = F}
+The number of loci Nmap a read maps to is given by NH:i:Nmap field. Value of 1 corresponds to
+unique mappers, while values >1 corresponds to multi-mappers. HI attrbiutes enumerates multiple
+alignments of a read starting with 1 (this can be changed with the --outSAMattrIHstart - setting
+it to 0 may be required for compatibility with downstream software such as Cufflinks or StringTie).
+The mapping quality MAPQ (column 5) is 255 for uniquely mapping reads, and int(-10*log10(1-
+1/Nmap)) for multi-mapping reads. This scheme is same as the one used by TopHat and is compatible with Cufflinks. The default MAPQ=255 for the unique mappers maybe changed with
+--outSAMmapqUnique parameter (integer 0 to 255) to ensure compatibility with downstream tools
+such as GATK.
+For multi-mappers, all alignments except one are marked with 0x100 (secondary alignment) in
+the FLAG (column 2 of the SAM). The unmarked alignment is selected from the best ones (i.e.
+highest scoring). This default behavior can be changed with --outSAMprimaryFlag AllBestScore
+option, that will output all alignments with the best score as primary alignments (i.e. 0x100 bit in
+the FLAG unset).
+By default, the order of the multi-mapping alignments for each read is not truly random. The
+--outMultimapperOrder Random option outputs multiple alignments for each read in random order,
+10
+and also also randomizes the choice of the primary alignment from the highest scoring alignments.
+Parameter --runRNGseed can be used to set the random generator seed. With this option, the
+ordering of multi-mapping alignments of each read, and the choice of the primary alignment will vary
+from run to run, unless only one thread is used and the seed is kept constant.
+The --outSAMmultNmax parameter limits the number of output alignments (SAM lines) for
+multimappers. For instance, --outSAMmultNmax 1 will output exactly one SAM line for each
+mapped read. Note that NH:i: tag in STAR will still report the actual number of loci that
+the reads map to, while the the number of reported alignments for a read in the SAM file is
+min(NH,--outSAMmultNMax).
+```
+
+```{r echo=FALSE, include=FALSE, eval=F}
+
+# vs_hg38.bwa <- bam_summary_loader(filename = "data/summaries/intermediate/BAMs/all.vs_hg38.bwa.summary",aligner="bwa", reference="hg38")
+# vs_hg38.bwaUniq <- bam_summary_loader(filename = "data/summaries/intermediate/BAMs/all.vs_hg38.bwaUniq.summary",aligner="bwaUniq", reference="hg38")
+vs_hg38.starRaw <- bam_summary_loader(filename = "data/summaries/intermediate/BAMs/all.vs_hg38.starRaw.summary",aligner="starRaw", reference="hg38")
+vs_hg38.starMulti <- bam_summary_loader(filename = "data/summaries/intermediate/BAMs/all.vs_hg38.starRaw.summary",aligner="starMulti", reference="hg38")
+vs_hg38.starUniq <- bam_summary_loader(filename = "data/summaries/intermediate/BAMs/all.vs_hg38.starUniq.summary",aligner="starUniq", reference="hg38")
+
+vs_hg38.hisatRaw <- bam_summary_loader(filename = "data/summaries/intermediate/BAMs/all.vs_hg38.hisatRaw.summary",aligner="hisatRaw", reference="hg38")
+vs_hg38.hisatMulti <- bam_summary_loader(filename = "data/summaries/intermediate/BAMs/all.vs_hg38.hisatRaw.summary",aligner="hisatMulti", reference="hg38")
+vs_hg38.hisatUniq <- bam_summary_loader(filename = "data/summaries/intermediate/BAMs/all.vs_hg38.hisatUniq.summary",aligner="hisatUniq", reference="hg38")
+
+vs_hg38.mapspliceRaw <- bam_summary_loader(filename = "data/summaries/intermediate/BAMs/all.vs_hg38.mapspliceRaw.summary",aligner="mapspliceRaw", reference="hg38")
+vs_hg38.mapspliceMulti <- bam_summary_loader(filename = "data/summaries/intermediate/BAMs/all.vs_hg38.mapspliceRaw.summary",aligner="mapspliceMulti", reference="hg38")
+vs_hg38.mapspliceUniq <- bam_summary_loader(filename = "data/summaries/intermediate/BAMs/all.vs_hg38.mapspliceUniq.summary",aligner="mapspliceUniq", reference="hg38")
+
+
+
+all_alignments <- rbind(vs_hg38.starRaw, vs_hg38.starMulti, vs_hg38.starUniq, vs_hg38.mapspliceRaw, vs_hg38.mapspliceMulti, vs_hg38.mapspliceUniq, vs_hg38.hisatRaw, vs_hg38.hisatMulti, vs_hg38.hisatUniq)
+
+```
+
+```{r echo=FALSE, include=FALSE, eval=T}
+
+all_alignments <- read_delim("data/summaries/intermediate/BAMs/all.vs_hg38.summary", "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE)
+names(all_alignments) <- c("aligner","sample","measure","value")
+	
+all_alignments$sample <- as.factor(all_alignments$sample)
+all_alignments$measure <- as.factor(all_alignments$measure)
+all_alignments$aligner <- as.factor(all_alignments$aligner)
+all_alignments$reference <- as.factor("hg38")
+
+all_alignments %<>% mutate(stage = case_when( str_detect(aligner, "Raw") ~ "raw",str_detect(aligner, "Multi") ~ "filtered", str_detect(aligner, "Uniq") ~ "unique", TRUE ~"yeas")) %>% mutate(aligner = case_when( str_detect(aligner, "mapsplice") ~ "mapsplice",str_detect(aligner, "star") ~ "star", str_detect(aligner, "hisat") ~ "hisat", TRUE ~"yeas")) 
+```
+
+### Read & Alignment Quality
+
+```{r echo=FALSE, warning = FALSE}
+
+
+#readcount_process <- all_alignments %>%  filter( (measure=='total_read_count' & aligner=="bwa") | measure == 'total_mapped_count' ) %>% mutate(measure=ifelse(aligner=="bwaUniq", "filtered_mapped_count", ifelse(measure=="total_read_count","total_read_count","total_mapped_count"))) 
+
+readcount_process <- all_alignments  %>% filter(measure == "total_mapped_count") 
+
+
+readcount_process <- rbind(readcount_process, filtration_stats %>% filter(measure=='total_reads') %>% filter(subgroups == "all")%>% filter(type == "postfiltered") %>% mutate(stage = "sequenced", reference = NA, sample = name, aligner = "mapsplice", value=value/2) %>% select(c("sample", "measure", "value", "aligner" ,"reference", "stage" )))
+
+readcount_process <- rbind(readcount_process, filtration_stats %>% filter(measure=='total_reads') %>% filter(subgroups == "all")%>% filter(type == "postfiltered") %>% mutate(stage = "sequenced", reference = NA, sample = name, aligner = "star", value=value/2) %>% select(c("sample", "measure", "value", "aligner" ,"reference", "stage" )))
+
+readcount_process <- rbind(readcount_process, filtration_stats %>% filter(measure=='total_reads') %>% filter(subgroups == "all")%>% filter(type == "postfiltered") %>% mutate(stage = "sequenced", reference = NA, sample = name, aligner = "hisat", value=value/2) %>% select(c("sample", "measure", "value", "aligner" ,"reference", "stage" )))
+
+
+
+readcount_process$stage <- factor(readcount_process$stage, levels = c('sequenced','raw','filtered',"unique"))
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+fig_cnt <- fig_cnt +1
+readcount_process.retention.gg <- ggplot( inner_join( readcount_process %>% filter(stage != "unique"), data_sets.df %>% filter(subgroups == "all") %>% select(c("depleted", "class", "name")) %>% unique() , by=c("sample"="name")) ) + geom_line(aes(group=paste(sample, aligner), x=stage,y=value, color = aligner)) + geom_point(aes(x=stage, y=value, group=sample, shape=depleted)) + labs(title=paste("Figure ", fig_cnt, ". Read Counts by Processing Step: Unmapped, Mapped, Filtered", sep = ""), x="", y="Number Reads" ) + scale_y_log10()  + theme_clear() + theme(axis.text.x = element_text(angle = -45, hjust = 0)) 
+
+readcount_process.retention.gg
+
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_MappingRetention.png", sep=""))
+readcount_process.retention.gg
+dev.off()
+
+
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+readcount_process.spread <- inner_join(readcount_process %>% filter(stage == "sequenced") %>% select(-c(measure, reference, aligner)) %>% unique() %>% spread(key = stage, value =value)  , readcount_process %>% filter(stage != "sequenced") %>% spread(key = stage, value = value) ,by = c("sample"="sample")) %>% mutate( mapping_retention = raw/sequenced, filter_retention = filtered/raw, unique_retention = unique/filtered)
+
+
+
+
+tbl_cnt <- tbl_cnt + 1 
+alignmentReadCountRetention.gt <-readcount_process.spread%>% gather(c(sequenced, raw, filtered, unique), key="measure", value="value") %>%  group_by(measure, aligner) %>% summarise(minimum = min(value), average=mean(value), median = median(value), maximum = max(value)) %>% filter(measure !="unique")  %>%  gt() %>% tab_header(title=paste("Table ",tbl_cnt, ". Read Counts During Alignment & Filtration", sep = ""), subtitle=" ") %>% fmt_number(columns=c(minimum,median,average,maximum), decimals=1, suffixing = T) %>% cols_label("measure"=" ")
+alignmentReadCountRetention.gt
+
+write(alignmentReadCountRetention.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"_AlignmentReadCountRetention.html", sep=""))
+
+
+```
+
+The fraction of reads retained at each point:
+
+```{r echo=FALSE, warning=FALSE, include=F}
+
+
+
+tbl_cnt <- tbl_cnt + 1
+alignmentRate_bySample.gt <- inner_join(readcount_process.spread %>% select(c(sample, aligner, mapping_retention)) , data_sets.df %>% filter(subgroups == "all") %>% select(c(name, depleted, class)), by = c("sample"="name")) %>% group_by(class, aligner) %>% summarise(avg = mean(mapping_retention), minn = min(mapping_retention), macks = max(mapping_retention)) %>% gather(key="stat", value = "value", avg:macks) %>% mutate(null = paste(aligner,stat,sep=" ")) %>% select(-c(aligner, stat)) %>% spread(key = null, value = value) %>% gt() %>%  tab_spanner(label = "hisat", columns = starts_with("hisat")) %>%  tab_spanner(label = "star", columns = starts_with("star")) %>% cols_label("hisat macks"="max","hisat minn"="min","hisat avg"="mean", "star macks"="max","star minn"="min","star avg"="mean") %>% fmt_percent(columns=starts_with("hisat"), decimals=1) %>% fmt_percent(columns=starts_with("star"), decimals=1)
+
+
+alignmentRate_bySample.gt
+write(alignmentRate_bySample.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"a_AlignmentRate_bySample.html", sep=""))
+
+
+
+```
+
+```{r echo=FALSE, warning=FALSE, include=T}
+
+
+
+
+alignmentRate_byClass.gt <- inner_join(readcount_process.spread %>% select(c(sample, aligner, mapping_retention)) , data_sets.df %>% filter(subgroups == "all") %>% select(c(name, depleted, class)), by = c("sample"="name")) %>% group_by(class, aligner) %>% summarise(avg = mean(mapping_retention), minn = min(mapping_retention), macks = max(mapping_retention)) %>% gather(key="stat", value = "value", avg:macks) %>% mutate(null = paste(aligner,stat,sep=" ")) %>% select(-c(aligner, stat)) %>% spread(key = null, value = value) %>% ungroup() %>% gt() %>%  tab_spanner(label = "hisat", columns = starts_with("hisat")) %>%  tab_spanner(label = "star", columns = starts_with("star")) %>% cols_label("hisat macks"="max","hisat minn"="min","hisat avg"="mean", "star macks"="max","star minn"="min","star avg"="mean", "class" = "") %>% fmt_percent(columns=starts_with("hisat"), decimals=1) %>% fmt_percent(columns=starts_with("star"), decimals=1)  %>%  tab_header(title=paste("Table ",tbl_cnt, "b. Percentage of Reads Retained During Initial Mapping", sep = ""), subtitle="by class") 
+
+alignmentRate_byClass.gt
+write(alignmentRate_byClass.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"b_AlignmentRate_byClass.html", sep=""))
+
+
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+tbl_cnt <- tbl_cnt + 1
+alignmentReadRetentionRate.gt <- readcount_process.spread %>% gather(mapping_retention:unique_retention, key="measure", value="value") %>%  group_by(measure, aligner) %>% summarise(minimum = min(value), average=mean(value), median = median(value), maximum = max(value)) %>% filter(measure !="unique_retention") %>% gt()  %>%  tab_header(title=paste("Table ",tbl_cnt, ". Percentage of Reads Retained at Each Step", sep = ""), subtitle=" ") %>% fmt_percent(columns=c(minimum,median,average,maximum), decimals=1) %>% cols_label("measure" = " ")
+alignmentReadRetentionRate.gt
+write(alignmentReadRetentionRate.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"a_AlignmentReadRetentionRate.html", sep=""))
+
+
+
+```
+
+Yikes! Some of those are pretty low... here's the bottom of the barrel. They are almost all undepleted:
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+
+lowMappability.gt <- readcount_process.spread %>% gather(c(mapping_retention,filter_retention), key="measure", value="value") %>%  group_by(measure, aligner) %>% mutate(ronk = rank(value) ) %>% filter(ronk < 6) %>% arrange(ronk) %>% select(c(sample, measure, value, ronk)) %>% gt() %>%  tab_header(title=paste("Table ",tbl_cnt, "b. Samples with Lowest Mapping Rate", sep = ""), subtitle="Fraction of Quality Reads which Map and Fraction of Mapped Reads Passing Filter") %>% fmt_percent(columns=c(value), decimals=1) %>% cols_label(sample = "", ronk = "", value = "fraction") %>% cols_move_to_start(ronk)
+
+
+lowMappability.gt
+write(lowMappability.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"b_LowMappingRateSamples.html", sep=""))
+
+
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+final_mapping_retention <- inner_join(filtration_stats %>% filter(subgroups == "all" & measure == "total_reads" & type == "prefiltered") %>% mutate(sequenced = value/2) %>% select(c(name, sequenced, class, depleted)), readcount_process.spread %>% select(-c("sequenced")), by=c("name" = "sample")) %>% mutate(final_mapped_retention = filtered/sequenced ) 
+
+
+lowTotalMappability.gt<- final_mapping_retention %>% select(c("name", "final_mapped_retention","aligner"))%>%  group_by(aligner) %>% mutate(ronk = rank(final_mapped_retention) ) %>% arrange(ronk)  %>% filter(ronk < 6) %>% gt() %>%  tab_header(title=paste("Table ",tbl_cnt, "c. Samples with Greatest Loss During Overall Mapping", sep = ""), subtitle="Fraction of Initially Sequenced Reads which Map and Pass Filter") %>% fmt_percent(columns=c(final_mapped_retention), decimals=1) %>% cols_label(name = "", ronk = "", final_mapped_retention = "Percent of Sequenced Reads") %>% cols_move_to_start(ronk)
+
+
+lowTotalMappability.gt
+write(lowTotalMappability.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"b_LowOverallMappingRateSamples.html", sep=""))
+
+
+```
+
+```{r echo=FALSE, include=TRUE, message=FALSE, warning=FALSE}
+
+
+fig_cnt <- fig_cnt +1 
+
+final_mapping_retention.hist.gg <- ggplot( final_mapping_retention %>% mutate(final_mapped_retention = 100*final_mapped_retention) )+ geom_histogram(aes(x=final_mapped_retention, fill = depleted)) + geom_histogram(aes(x=final_mapped_retention), color = "black", alpha = 0) + labs(title=paste("Figure ", fig_cnt, ". Many Samples Have Low Overall Read Retention", sep = ""), x="Percent of Initially Sequenced Reads Which are Well-Mapped", y="Number Samples", subtitle = "workflow to date: sequencing, preprocessing, alignment, filtering" )   + theme_clear() + facet_grid(aligner ~.)
+
+final_mapping_retention.hist.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_finalMappingRetentionHist.png", sep=""))
+final_mapping_retention.hist.gg
+dev.off()
+
+```
+
+When BWA was used to map the reads, many samples had high rates of singleton mappings, in which one read of a pair is mapped but the other isn't. The nearly 50% singleton rate was attributed to the unspliced mapping of spliced reads; however, the splice-aware HISAT2 aligner still had \~15-20% of mapped reads as singletons, with depleted samples tending to be slightly higher than undepleted. Splice-aware sligner STAR had very low (but typically nonzero) rates of singleton mapping.
+
+```{r echo=FALSE, include=TRUE, message=FALSE, warning=FALSE}
+
+
+#inner_join(all_alignments %>% filter(measure == "singleton_count") %>% spread(key =measure, value =value), all_alignments %>% filter(measure == "total_mapped_count") %>% spread(key =measure, value =value), by = c("stage"="stage","aligner"="aligner", "sample"="sample", "reference" = "reference"))
+
+ 
+
+singleton_fraction.df <- inner_join(all_alignments %>% filter(measure == "singleton_count") %>% spread(key =measure, value =value), all_alignments %>% filter(measure == "total_mapped_count") %>% spread(key =measure, value =value), by = c("stage"="stage","aligner"="aligner", "sample"="sample", "reference" = "reference")) %>% filter(stage == "raw") %>% mutate(supersample = gsub("_Yes", "", sample)) %>% mutate(supersample = gsub("_No", "", supersample)) 
+
+singleton_fraction.aug.df <- inner_join(singleton_fraction.df, data_sets.df %>% filter(subgroups == "all"), by = c("sample"="name")) %>% mutate(singleton_frac = singleton_count/total_mapped_count)
+
+  
+
+fig_cnt <- fig_cnt +1 
+
+singleton_fraction.hist.gg <- ggplot( singleton_fraction.aug.df )+ geom_histogram(aes(x=singleton_frac, fill = depleted)) + geom_histogram(aes(x=singleton_frac), color = "black", alpha = 0) + labs(title=paste("Figure ", fig_cnt, ". Many Samples Have Significant Rates of Singleton Mapping", sep = ""), x="Fraction of Mapped Reads Which Are Singletons", y="Number Samples", subtitle = "ie, one mate of a paired read aligns but the other does not" )   + theme_clear() + facet_grid(aligner ~.)
+
+singleton_fraction.hist.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_singletonFractionHist.png", sep=""))
+singleton_fraction.hist.gg
+dev.off()
+
+
+```
+
+#### Ribosomal Mapping
+
+```{r echo=FALSE, include=FALSE, eval=T}
+
+riboAlignments.df <- read_delim("data/summaries/intermediate/BAMs/all.vs_humanRibo.summary", "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE)
+names(riboAlignments.df) <- c("aligner","sample","measure","value")
+	
+riboAlignments.df$sample <- as.factor(riboAlignments.df$sample)
+riboAlignments.df$measure <- as.factor(riboAlignments.df$measure)
+riboAlignments.df$aligner <- as.factor(riboAlignments.df$aligner)
+riboAlignments.df$reference <- as.factor("humanRibo")
+
+
+riboAlignments.aug.df <- inner_join(filtration_stats %>% filter(subgroups == "all" & type =="postfiltered" & measure == "total_reads") %>% mutate(sequenced = value) %>% select(c(name, sequenced, depleted, class)),riboAlignments.df %>% filter(measure == "total_mapped_count") %>% mutate(mapped=value)%>% select(c(aligner, sample, mapped)),by=c("name"="sample")) %>% mutate(frac_mapped = mapped/sequenced) %>% mutate(supersample = gsub("_No", "", name) ) %>% mutate(supersample = gsub("_Yes", "", supersample) ) %>% mutate(depleted =  recode(as.factor(depleted), "FALSE" = "Without", "TRUE"= "With")) 
+#riboAlignments.df %<>% mutate(stage = case_when( str_detect(aligner, "Raw") ~ "raw",str_detect(aligner, "Multi") ~ "filtered", str_detect(aligner, "Uniq") ~ "unique", TRUE ~"yeas")) %>% mutate(aligner = case_when( str_detect(aligner, "mapsplice") ~ "mapsplice",str_detect(aligner, "star") ~ "star", str_detect(aligner, "hisat") ~ "hisat", TRUE ~"yeas")) 
+```
+
+The reads were also mapped against human ribosomal RNA sequences from BioMart, using BWA.
+
+```{r echo=FALSE, include=TRUE, eval=T}
+tbl_cnt <- tbl_cnt + 1 
+riboAlignments.aug.gt <- riboAlignments.aug.df %>% group_by(aligner, depleted, class) %>% summarise(minn = min(frac_mapped),avg = mean(frac_mapped),macks = max(frac_mapped)) %>% ungroup() %>% group_by(aligner, class) %>% gt() %>% fmt_scientific(columns = c(minn, avg, macks)) %>% cols_hide(c("avg")) %>% tab_header(title=paste("Table ",tbl_cnt, ". Fraction of Sequenced Reads Mapping to Human Ribosome Sequence", sep = ""), subtitle="unfiltered BWA") %>% cols_label( "minn"="minimum", "macks" = "maximum")
+
+
+riboAlignments.aug.gt
+
+write(riboAlignments.aug.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"_ribosomalAlignmentRate.html", sep=""))
+
+```
+
+#### tRNA Mapping
+
+```{r echo=FALSE, include=FALSE, eval=T}
+
+trnaAlignments.df <- read_delim("data/summaries/intermediate/BAMs/all.vs_humanTrna.summary", "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE)
+names(trnaAlignments.df) <- c("aligner","sample","measure","value")
+	
+trnaAlignments.df$sample <- as.factor(trnaAlignments.df$sample)
+trnaAlignments.df$measure <- as.factor(trnaAlignments.df$measure)
+trnaAlignments.df$aligner <- as.factor(trnaAlignments.df$aligner)
+trnaAlignments.df$reference <- as.factor("humanTrna")
+
+
+trnaAlignments.aug.df <- inner_join(filtration_stats %>% filter(subgroups == "all" & type =="postfiltered" & measure == "total_reads") %>% mutate(sequenced = value) %>% select(c(name, sequenced, depleted, class)),trnaAlignments.df %>% filter(measure == "total_mapped_count") %>% mutate(mapped=value)%>% select(c(aligner, sample, mapped)),by=c("name"="sample")) %>% mutate(frac_mapped = mapped/sequenced) %>% mutate(supersample = gsub("_No", "", name) ) %>% mutate(supersample = gsub("_Yes", "", supersample) ) %>% mutate(depleted =  recode(as.factor(depleted), "FALSE" = "Without", "TRUE"= "With")) 
+#riboAlignments.df %<>% mutate(stage = case_when( str_detect(aligner, "Raw") ~ "raw",str_detect(aligner, "Multi") ~ "filtered", str_detect(aligner, "Uniq") ~ "unique", TRUE ~"yeas")) %>% mutate(aligner = case_when( str_detect(aligner, "mapsplice") ~ "mapsplice",str_detect(aligner, "star") ~ "star", str_detect(aligner, "hisat") ~ "hisat", TRUE ~"yeas")) 
+```
+
+The reads were also mapped against human transfer RNA sequences from RNACentral, using BWA.
+
+```{r echo=FALSE, include=TRUE, eval=T}
+tbl_cnt <- tbl_cnt + 1 
+trnaAlignments.aug.gt <- trnaAlignments.aug.df %>% group_by(aligner, depleted, class) %>% summarise(minn = min(frac_mapped),avg = mean(frac_mapped),macks = max(frac_mapped)) %>% ungroup() %>% group_by(aligner, class) %>% gt() %>% fmt_scientific(columns = c(minn, avg, macks)) %>% cols_hide(c("avg")) %>% tab_header(title=paste("Table ",tbl_cnt, ". Fraction of Sequenced Reads Mapping to Human tRNA Sequence", sep = ""), subtitle="unfiltered BWA") %>% cols_label( "minn"="minimum", "macks" = "maximum")
+
+
+trnaAlignments.aug.gt
+
+write(trnaAlignments.aug.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"_trnaAlignmentRate.html", sep=""))
+
+```
+
+#### mycoplasma Mapping
+
+```{r echo=FALSE, include=FALSE, eval=T}
+
+mycoG37Alignments.df <- read_delim("data/summaries/intermediate/BAMs/all.vs_mycoG37.summary", "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE)
+names(mycoG37Alignments.df) <- c("aligner","sample","measure","value")
+	
+mycoG37Alignments.df$sample <- as.factor(mycoG37Alignments.df$sample)
+mycoG37Alignments.df$measure <- as.factor(mycoG37Alignments.df$measure)
+mycoG37Alignments.df$aligner <- as.factor(mycoG37Alignments.df$aligner)
+mycoG37Alignments.df$reference <- as.factor("mycoG37")
+
+mycoAlignments.df <- mycoG37Alignments.df
+
+mycoAlignments.aug.df <- inner_join(filtration_stats %>% filter(subgroups == "all" & type =="postfiltered" & measure == "total_reads") %>% mutate(sequenced = value) %>% select(c(name, sequenced, depleted, class)), mycoAlignments.df %>% filter(measure == "total_mapped_count") %>% mutate(mapped=value)%>% select(c(aligner, sample, mapped)),by=c("name"="sample")) %>% mutate(frac_mapped = mapped/sequenced) %>% mutate(supersample = gsub("_No", "", name) ) %>% mutate(supersample = gsub("_Yes", "", supersample) ) %>% mutate(depleted =  recode(as.factor(depleted), "FALSE" = "Without", "TRUE"= "With")) 
+#riboAlignments.df %<>% mutate(stage = case_when( str_detect(aligner, "Raw") ~ "raw",str_detect(aligner, "Multi") ~ "filtered", str_detect(aligner, "Uniq") ~ "unique", TRUE ~"yeas")) %>% mutate(aligner = case_when( str_detect(aligner, "mapsplice") ~ "mapsplice",str_detect(aligner, "star") ~ "star", str_detect(aligner, "hisat") ~ "hisat", TRUE ~"yeas")) 
+```
+
+The reads were also mapped against the G37 mycoplasma genome, using BWA.
+
+```{r echo=FALSE, include=TRUE, eval=T}
+tbl_cnt <- tbl_cnt + 1 
+mycoAlignments.aug.gt <- mycoAlignments.aug.df %>% group_by(aligner, depleted, class) %>% summarise(minn = min(frac_mapped),avg = mean(frac_mapped),macks = max(frac_mapped)) %>% ungroup() %>% group_by(aligner, class) %>% gt() %>% fmt_scientific(columns = c(minn, avg, macks)) %>% cols_hide(c("avg")) %>% tab_header(title=paste("Table ",tbl_cnt, ". Fraction of Sequenced Reads Mapping to Mycoplasma Genome", sep = ""), subtitle="unfiltered BWA; mycoplasma G37") %>% cols_label( "minn"="minimum", "macks" = "maximum")
+
+
+mycoAlignments.aug.gt
+
+write(mycoAlignments.aug.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"_mycoAlignmentRate.html", sep=""))
+
+```
+
+## Assigning Reads to Annotated Features
+
+Mapped reads were assigned and counted using the featureCounts function from the SubRead package. [@Liao2014]. In particular, the reads were assigned to exons in the NCBIrefSeq GTF annotation, and these were counted towards the genes containing the exons. The two ends of paired reads were counted together as a single read pair. To be counted, the ends of the paired reads can't map to different chromosomes. A read was assigned to every annotation it overlapped. (Command line options: `-t exon -g gene_id --countReadPairs -p -C -O` ).
+
+There is also the issue of multimapping reads (those which map to more than one location in the genome): by default they are not counted at all, but they can also be assigned to the overlaps at all mapped locations. The requirement that the reads be properly paired (and thus not singletons) can also be toggled. This gives four combinations of counting options:
+
+`-B` : Don't count multimappers; don't count singletons
+
+`-M -B` : Count multimappers; don't count singletons
+
+`___` : Don't count multimappers; count singletons
+
+`-M` : Count multimappers; count singletons
+
+```{bash echo=TRUE, eval=F}
+
+featureCounts {flug_str} {params.fc_params} -t exon -g gene_id -F GTF -a <(cat {annot_gtf} | awk '{{print""$0}}') -o {output.counted_features}.tmp {input.alignments_in}
+
+
+```
+
+## Kraken
+
+Many reads ultimately did not align in proper pairs; these were extracted and their metagenomics investigated using Kraken2 [@serfsdf]. The "Standard" index (10/9/2023) was downloaded from Ben Langmead's repository (<https://benlangmead.github.io/aws-indexes/k2>)
+
+```{bash echo=TRUE, eval=F}
+kraken2 --memory-mapping --use-names --db {db_ndx} --report {output.krakenation} --paired {input.read1} {input.read2} > /dev/null
+```
+
+# Results
+
+## Consistency & Quanitity of Counts Between Aligners
+
+```{r echo=FALSE, include=FALSE, warning=FALSE, message=FALSE}
+
+
+
+all_vs_hg38_NCBIrefSeq_starRaw_MB_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starRaw.MB.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "raw", count_params = "MB")
+
+all_vs_hg38_NCBIrefSeq_starMulti_MB_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starMulti.MB.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "multi", count_params = "MB")
+
+all_vs_hg38_NCBIrefSeq_starUniq_MB_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starUniq.MB.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "uniq", count_params = "MB")
+
+
+all_vs_hg38_NCBIrefSeq_hisatRaw_MB_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatRaw.MB.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "raw", count_params = "MB")
+
+all_vs_hg38_NCBIrefSeq_hisatMulti_MB_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatMulti.MB.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "multi", count_params = "MB")
+
+all_vs_hg38_NCBIrefSeq_hisatUniq_MB_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatUniq.MB.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "uniq", count_params = "MB")
+
+
+
+# all_vs_hg38_NCBIrefSeq_mapspliceRaw_MB_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceRaw.MB.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "raw", count_params = "MB")
+# 
+# all_vs_hg38_NCBIrefSeq_mapspliceMulti_MB_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceMulti.MB.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "multi", count_params = "MB")
+# 
+# all_vs_hg38_NCBIrefSeq_mapspliceUniq_MB_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceUniq.MB.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "uniq", count_params = "MB")
+
+
+
+# all_vs_hg38_NCBIrefSeq_mapspliceRaw_MB_counts.df  , all_vs_hg38_NCBIrefSeq_mapspliceMulti_MB_counts.df, all_vs_hg38_NCBIrefSeq_mapspliceUniq_MB_counts.df 
+
+
+
+
+
+
+all_vs_hg38_NCBIrefSeq_starRaw_M_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starRaw.M.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "raw", count_params = "M")
+
+all_vs_hg38_NCBIrefSeq_starMulti_M_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starMulti.M.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "multi", count_params = "M")
+
+all_vs_hg38_NCBIrefSeq_starUniq_M_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starUniq.M.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "uniq", count_params = "M")
+
+
+all_vs_hg38_NCBIrefSeq_hisatRaw_M_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatRaw.M.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "raw", count_params = "M")
+
+all_vs_hg38_NCBIrefSeq_hisatMulti_M_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatMulti.M.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "multi", count_params = "M")
+
+all_vs_hg38_NCBIrefSeq_hisatUniq_M_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatUniq.M.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "uniq", count_params = "M")
+
+
+
+# all_vs_hg38_NCBIrefSeq_mapspliceRaw_M_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceRaw.M.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "raw", count_params = "M")
+# 
+# all_vs_hg38_NCBIrefSeq_mapspliceMulti_M_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceMulti.M.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "multi", count_params = "M")
+# 
+# all_vs_hg38_NCBIrefSeq_mapspliceUniq_M_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceUniq.M.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "uniq", count_params = "M")
+
+
+
+# all_vs_hg38_NCBIrefSeq_mapspliceRaw_M_counts.df  , all_vs_hg38_NCBIrefSeq_mapspliceMulti_M_counts.df, all_vs_hg38_NCBIrefSeq_mapspliceUniq_M_counts.df 
+
+
+
+
+all_vs_hg38_NCBIrefSeq_starRaw_B_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starRaw.B.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "raw", count_params = "B")
+
+all_vs_hg38_NCBIrefSeq_starMulti_B_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starMulti.B.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "multi", count_params = "B")
+
+all_vs_hg38_NCBIrefSeq_starUniq_B_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starUniq.B.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "uniq", count_params = "B")
+
+
+all_vs_hg38_NCBIrefSeq_hisatRaw_B_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatRaw.B.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "raw", count_params = "B")
+
+all_vs_hg38_NCBIrefSeq_hisatMulti_B_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatMulti.B.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "multi", count_params = "B")
+
+all_vs_hg38_NCBIrefSeq_hisatUniq_B_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatUniq.B.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "uniq", count_params = "B")
+
+
+
+# all_vs_hg38_NCBIrefSeq_mapspliceRaw_B_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceRaw.B.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "raw", count_params = "B")
+# 
+# all_vs_hg38_NCBIrefSeq_mapspliceMulti_B_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceMulti.B.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "multi", count_params = "B")
+# 
+# all_vs_hg38_NCBIrefSeq_mapspliceUniq_B_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceUniq.B.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "uniq", count_params = "B")
+
+
+
+# all_vs_hg38_NCBIrefSeq_mapspliceRaw_B_counts.df  , all_vs_hg38_NCBIrefSeq_mapspliceMulti_B_counts.df, all_vs_hg38_NCBIrefSeq_mapspliceUniq_B_counts.df 
+
+
+
+
+all_vs_hg38_NCBIrefSeq_starRaw_z_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starRaw.z.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "raw", count_params = "z")
+
+all_vs_hg38_NCBIrefSeq_starMulti_z_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starMulti.z.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "multi", count_params = "z")
+
+all_vs_hg38_NCBIrefSeq_starUniq_z_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.starUniq.z.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "star", stage = "uniq", count_params = "z")
+
+
+all_vs_hg38_NCBIrefSeq_hisatRaw_z_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatRaw.z.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "raw", count_params = "z")
+
+all_vs_hg38_NCBIrefSeq_hisatMulti_z_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatMulti.z.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "multi", count_params = "z")
+
+all_vs_hg38_NCBIrefSeq_hisatUniq_z_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.hisatUniq.z.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "hisat", stage = "uniq", count_params = "z")
+
+
+
+# all_vs_hg38_NCBIrefSeq_mapspliceRaw_z_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceRaw.z.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "raw", count_params = "z")
+# 
+# all_vs_hg38_NCBIrefSeq_mapspliceMulti_z_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceMulti.z.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "multi", count_params = "z")
+# 
+# all_vs_hg38_NCBIrefSeq_mapspliceUniq_z_counts.df  <- read_delim("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.mapspliceUniq.z.counts.summary", delim = "\t", escape_double = FALSE, trim_ws = TRUE)  %>% mutate(aligner = "mapsplice", stage = "uniq", count_params = "z")
+
+
+
+# all_vs_hg38_NCBIrefSeq_mapspliceRaw_z_counts.df  , all_vs_hg38_NCBIrefSeq_mapspliceMulti_z_counts.df, all_vs_hg38_NCBIrefSeq_mapspliceUniq_z_counts.df 
+
+
+
+
+
+all_vs_hg38_NCBIrefSeq_counts.df <- rbind(all_vs_hg38_NCBIrefSeq_starMulti_MB_counts.df, all_vs_hg38_NCBIrefSeq_starUniq_MB_counts.df, all_vs_hg38_NCBIrefSeq_hisatMulti_MB_counts.df, all_vs_hg38_NCBIrefSeq_hisatUniq_MB_counts.df, all_vs_hg38_NCBIrefSeq_hisatRaw_MB_counts.df, all_vs_hg38_NCBIrefSeq_starRaw_MB_counts.df, all_vs_hg38_NCBIrefSeq_starMulti_M_counts.df, all_vs_hg38_NCBIrefSeq_starUniq_M_counts.df, all_vs_hg38_NCBIrefSeq_hisatMulti_M_counts.df, all_vs_hg38_NCBIrefSeq_hisatUniq_M_counts.df, all_vs_hg38_NCBIrefSeq_hisatRaw_M_counts.df, all_vs_hg38_NCBIrefSeq_starRaw_M_counts.df, all_vs_hg38_NCBIrefSeq_starMulti_B_counts.df, all_vs_hg38_NCBIrefSeq_starUniq_B_counts.df, all_vs_hg38_NCBIrefSeq_hisatMulti_B_counts.df, all_vs_hg38_NCBIrefSeq_hisatUniq_B_counts.df, all_vs_hg38_NCBIrefSeq_hisatRaw_B_counts.df, all_vs_hg38_NCBIrefSeq_starRaw_B_counts.df, all_vs_hg38_NCBIrefSeq_starMulti_z_counts.df, all_vs_hg38_NCBIrefSeq_starUniq_z_counts.df, all_vs_hg38_NCBIrefSeq_hisatMulti_z_counts.df, all_vs_hg38_NCBIrefSeq_hisatUniq_z_counts.df, all_vs_hg38_NCBIrefSeq_hisatRaw_z_counts.df, all_vs_hg38_NCBIrefSeq_starRaw_z_counts.df) %>% filter(Status %in% c("Assigned", "Unassigned_MultiMapping", "Unassigned_Singleton", "Unassigned_NoFeatures"))
+
+all_vs_hg38_NCBIrefSeq_counts.df %<>% gather(key = "sample", value = "count", -c("Status", "aligner", "count_params", "stage")) %>% group_by(aligner,stage,count_params,sample) %>% mutate(frac = count/sum(count)) %>% mutate(supersample = gsub("_No", "", sample) ) %>% mutate(supersample = gsub("_Yes", "", supersample) )
+
+
+all_vs_hg38_NCBIrefSeq_counts.augmented.df <- inner_join(all_vs_hg38_NCBIrefSeq_counts.df, data_sets.df %>% filter(subgroups == "all"), by=c("sample"="name"))%>% mutate(depleted = case_when(depleted == "TRUE" ~ "with", T ~ "without"))
+
+
+
+```
+
+First of all, we can compare the fraction of reads assigned between aligners. For the raw alignments and permissive counting, there is some nonlinearity:
+
+```{r echo=FALSE, include=TRUE, warning=FALSE, message=FALSE}
+
+
+all_vs_hg38_NCBIrefSeq_counts.augmented.howcounted.df <- all_vs_hg38_NCBIrefSeq_counts.augmented.df %>% select(c("Status","aligner","stage", "count_params", "sample", "count" , "frac", "supersample",  "depleted" , "class")) %>% filter(Status == "Assigned") %>% mutate( stage= case_match(stage, "multi" ~ "filtered", "raw" ~ "unfiltered", .default = NA), count_params = case_match(count_params, "B"~"strict", "M" ~ "permissive", .default = NA)) %>% filter(!is.na(count_params) & !is.na(stage)) %>% mutate(how_count = paste(stage, " + ", count_params,sep = "")) 
+fig_cnt <- fig_cnt +1 
+
+
+all_vs_hg38_NCBIrefSeq_counts.aligner_vs_aligner.gg <- ggplot( all_vs_hg38_NCBIrefSeq_counts.augmented.howcounted.df %>% filter(how_count == "unfiltered + permissive") %>% select(-c("count")) %>% spread(key = aligner, value = frac) ) + geom_abline(intercept = 0, slope = 1, linetype = "dashed") + geom_smooth(alpha=0.5, aes(x=hisat, y = star), color = "grey") + geom_point(aes(x=hisat, y = star, color = class, shape = depleted)) + labs(title= paste("Figure ",fig_cnt,"a. Fraction of Reads Assigned to an Annotation: Aligner Comparison", sep=""), subtitle = "unfiltered alignment; permissive counting",  x="Fraction Alignment Assigned (HISAT)", y="Fraction Alignment Assigned (STAR)", caption = " " )+ theme_bw()
+
+all_vs_hg38_NCBIrefSeq_counts.aligner_vs_aligner.gg
+
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"a_aligner_fracComparison.png", sep=""))
+all_vs_hg38_NCBIrefSeq_counts.aligner_vs_aligner.gg
+dev.off()
+
+
+```
+
+With a filtered alignment and strict counting, the fraction assigned is linearly correllated between the two aligners. The agreement is close but deviates slightly from exact (dashed line):
+
+```{r echo=FALSE, include=TRUE, warning=FALSE, message=FALSE}
+
+all_vs_hg38_NCBIrefSeq_counts.aligner_vs_aligner_filt.gg <- ggplot( all_vs_hg38_NCBIrefSeq_counts.augmented.howcounted.df %>% filter(how_count == "filtered + strict")%>% select(-c("count")) %>% spread(key = aligner, value = frac) ) + geom_abline(intercept = 0, slope = 1, linetype = "dashed") + geom_smooth(alpha=0.5, aes(x=hisat, y = star), color = "grey") + geom_point(aes(x=hisat, y = star, color = class, shape = depleted)) + labs(title= paste("Figure ",fig_cnt,"b. Fraction of Reads Assigned to an Annotation: Aligner Comparison", sep=""), subtitle = "filtered alignment; strict counting",  x="Fraction Alignment Assigned (HISAT)", y="Fraction Alignment Assigned (STAR)", caption = " " )+ theme_bw()
+
+all_vs_hg38_NCBIrefSeq_counts.aligner_vs_aligner_filt.gg
+
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"b_aligner_fracComparison_filt.png", sep=""))
+all_vs_hg38_NCBIrefSeq_counts.aligner_vs_aligner_filt.gg
+dev.off()
+
+
+```
+
+```{r echo=FALSE, include=TRUE, warning=FALSE, message=FALSE}
+
+all_vs_hg38_NCBIrefSeq_counts.aligner_vs_aligner_all.gg <- ggplot( all_vs_hg38_NCBIrefSeq_counts.augmented.howcounted.df  %>% select(-c("count")) %>% spread(key = aligner, value = frac) ) + geom_abline(intercept = 0, slope = 1, linetype = "dashed") + geom_smooth(alpha=0.5, aes(x=hisat, y = star), color = "grey") + geom_point(aes(x=hisat, y = star, color = class, shape = depleted)) +facet_wrap(~how_count)+ labs(title= paste("Figure ",fig_cnt,"c. Fraction of Reads Assigned to an Annotation: Aligner Comparison", sep=""), subtitle = "various counting/aligning strategies",  x="Fraction Alignment Assigned (HISAT)", y="Fraction Alignment Assigned (STAR)", caption = " " )+ theme_bw()
+
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"c_aligner_fracComparison_all.png", sep=""))
+all_vs_hg38_NCBIrefSeq_counts.aligner_vs_aligner_all.gg
+dev.off()
+
+
+
+```
+
+Here are the absolute counts, rather than the fraction of the reads which are counted. There is relatively good agreement albeit on a log-log scale; it does illustrate the sheer quantity of reads which are not counted if there is any restriction:
+
+```{r echo=FALSE, include=TRUE, warning=FALSE, message=FALSE}
+
+all_vs_hg38_NCBIrefSeq_counts.aligner_vs_aligner_allCounts.gg <- ggplot( all_vs_hg38_NCBIrefSeq_counts.augmented.howcounted.df  %>% select(-c("frac")) %>% spread(key = aligner, value = count) ) + geom_abline(intercept = 0, slope = 1, linetype = "dashed") + geom_smooth(alpha=0.5, aes(x=hisat, y = star), color = "grey") + geom_point(aes(x=hisat, y = star, color = class, shape = depleted)) +facet_wrap(~how_count)+ labs(title= paste("Figure ",fig_cnt,"d. Counts of Reads Assigned to an Annotation: Aligner Comparison", sep=""), subtitle = "various alignment/counting strategies; log-log axes",  x="Log10 Number Assigned (HISAT)", y="Log10 Number Reads Assigned (STAR)", caption = " " )+ theme_bw() + scale_x_log10() + scale_y_log10()
+
+all_vs_hg38_NCBIrefSeq_counts.aligner_vs_aligner_allCounts.gg
+
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"d_aligner_countComparison_all.png", sep=""))
+all_vs_hg38_NCBIrefSeq_counts.aligner_vs_aligner_allCounts.gg
+dev.off()
+
+
+
+```
+
+In fact, most samples had less than 1% of the reads ultimately counted if there was filtering/restricted counting, and some less than 0.1%:
+
+```{r eval=T, echo=FALSE, include=T, warning=FALSE, message=FALSE}
+
+
+
+fig_cnt <- fig_cnt +1 
+
+overall_low_count_rate.gg <- ggplot( inner_join(all_vs_hg38_NCBIrefSeq_counts.augmented.howcounted.df, final_mapping_retention %>% select(c("name", "sequenced" )), by = c("sample"="name") ) %>% filter( !(stage=="unfiltered" & count_params == "permissive") ) %>% mutate(total_counted_frac = 100*count/sequenced) ) + geom_freqpoly(aes(x=total_counted_frac, color = aligner)) + facet_grid(how_count~.) + scale_x_log10() + labs(title=paste("Figure ", fig_cnt, ". Only a small fraction of the sequenced reads are ultimately counted", sep = ""), x="Percent of Initially Sequenced Reads Which are Counted", y="Number Samples", subtitle = "(log scale)" )   + theme_clear() 
+
+overall_low_count_rate.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_overallCountRateHist.png", sep=""))
+overall_low_count_rate.gg
+dev.off()
+
+
+
+```
+
+## Impact of Ribosome Depletion on Number of Reads Sequenced
+
+Across the board, ribosome-depleted samples had considerably more reads sequenced than did their undepleted counterparts; there is also a greater range of values:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+fig_cnt <- fig_cnt + 1
+
+ribDepl_fxOnReadsSequence.gg <- ggplot(filtration_stats %>% filter(measure=='total_reads' & subgroups == "all") %>% mutate(supersample = gsub("_Yes", "", name))%>% mutate(supersample = gsub("_No", "", supersample)) %>% mutate(depleted = case_when( depleted ==TRUE ~ "with", T~"without")) ) + geom_line(aes(group = supersample, y = value, x = depleted, color = class)) + geom_point(aes(x=depleted, y=value, color = class, shape = depleted) )+ facet_grid(.~type) + labs(title= paste("Figure ",fig_cnt,". Ribosome Depletion Reduces Number of Reads Sequenced and Number Passing QC", sep=""), subtitle = " ",  x="Depletion", y="Reads Sequenced", caption = " " )+ theme_bw()
+
+
+ribDepl_fxOnReadsSequence.gg
+
+
+
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_ribDepl_fxOnReadsSequenced.png", sep=""))
+ribDepl_fxOnReadsSequence.gg
+dev.off()
+
+
+```
+
+## Impact of Ribosome Depletion on Read Mappings
+
+Samples with ribosome depletion tended to have more reads that map than undepleted samples.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+fig_cnt <-  fig_cnt + 1
+ribDepl_fxOnReadsMapped.gg <- ggplot( inner_join( readcount_process %>% filter(stage !="unique"), data_sets.df %>% filter(subgroups == "all")%>% select(c("depleted", "class", "name")) %>% unique() , by=c("sample"="name")) %>% mutate(supersample = gsub("_Yes","",sample) ) %>% mutate(supersample = gsub("_No","", supersample) ) %>% mutate(depleted = case_when(depleted == TRUE ~ "with", T~"without")) %>% filter(measure %in% c("total_mapped_count", "filtered_mapped_count") ) ) + geom_point(aes(x=depleted, y = value, color = class)) + geom_line(aes(x=depleted, y = value, color = class, group = supersample)) + facet_grid(stage~aligner) + labs(title=paste("Figure ", fig_cnt, ". Number of Reads Mapped, With and Without Ribosomal Depletion", sep = ""), x="", y="Number Reads", subtitle = "filtered and unfiltered alignments" ) + theme_bw() 
+
+ribDepl_fxOnReadsMapped.gg
+
+
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_ribDepl_fxOnReadsMapped.png", sep=""))
+ribDepl_fxOnReadsMapped.gg
+dev.off()
+
+
+```
+
+This is probably mostly due to the difference in number of reads sequenced. When we look at the fraction of sequenced reads that map to the genome, or the fraction of mapped reads which pass the quality filter, the pattern is more complicated though pretty consistent within a treatment:
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+fig_cnt <- fig_cnt + 1
+
+
+
+ribDepl_fxOnMappingRetention.gg <- ggplot( inner_join(readcount_process.spread %>% gather(mapping_retention:filter_retention, key="measure", value="value") %>% filter(measure %in% c("mapping_retention", "filter_retention")), data_sets.df %>% filter(subgroups == "all"), by = c("sample"="name")) %>% mutate(depleted = case_when(depleted == "FALSE" ~ "without", T~"with")) %>% mutate(supersample = gsub("_No", "", sample)) %>% mutate(supersample = gsub("_Yes", "", supersample)) ) + geom_line(aes(x=depleted, y=value, group = supersample)) + geom_point(aes(x=depleted, y=value, group = supersample, color = class)) + facet_grid(aligner~measure) + labs(title=paste("Figure ", fig_cnt, ". Read Retention Rate, with and without ribosome depletion", sep = ""), x="", y="Fraction of Reads", subtitle = "fraction of sequence reads which map; fraction of mapped reads which pass filter" ) + theme_bw() 
+
+ribDepl_fxOnMappingRetention.gg
+
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_ribDepl_fxOnMappingRetention.png", sep=""))
+ribDepl_fxOnMappingRetention.gg
+dev.off()
+
+```
+
+As mentioned above, samples with depletion had a higher rate of singleton mapping than those without; here we have a more detailed view: the STAR alignments have essentially no singletons in undepleted samples, except for the Free_RNA category; the depleted samples can only be larger than the ones they're mapped to. The HISAT alignment with the much higher rates shows more complicated behavior, which seems to be consistent within classes.
+
+```{r echo=FALSE, include=T}
+
+fig_cnt <- fig_cnt +1 
+
+ribDepl_fxOnSingletons.gg <- ggplot( singleton_fraction.aug.df  )+ geom_line(aes(x= depleted, y = singleton_frac, group = supersample)) + geom_point(aes(x= depleted, y = singleton_frac, color = class)) + facet_grid(aligner~., scales = "free_y")+ labs(title=paste("Figure ", fig_cnt, ". Samples without Ribosome Depletion Have Higher Rates of Singleton Mapping", sep = ""), x="Ribosome Depletion", y="Fraction of Mapped Reads Which Are Singletons", subtitle = "ie, one mate of a paired read aligns but the other does not" )   + theme_clear() 
+
+ribDepl_fxOnSingletons.gg
+
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_ribDepl_fxOnSingletons.png", sep=""))
+ribDepl_fxOnSingletons.gg
+dev.off()
+
+
+
+```
+
+## Impact of Ribosome Depletion on Reads Mapping to Ribosomal Sequence
+
+Ribosome Depletion tends to reduce the fraction of reads mapping to ribosomal sequence, though the degree varies by RNA class:
+
+```{r echo=FALSE, include=TRUE, eval=T}
+
+fig_cnt <- fig_cnt + 1
+
+riboAlignments.aug.gg <- ggplot(riboAlignments.aug.df) + geom_line(aes(x=depleted, y = frac_mapped, group = supersample, color = class))  + geom_point(aes(x=depleted, y = frac_mapped, color = class))  + labs(title= paste("Figure ",fig_cnt,". Ribosome Depletion Reduces Fraction of Reads Aligning to Ribosomal Sequence", sep=""), subtitle = " ",  x="Depletion", y="Fraction of Reads Sequenced", caption = " " )+ theme_bw()
+
+
+
+riboAlignments.aug.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_ribosomalMapping_vsDepletion.png", sep=""))
+riboAlignments.aug.gg 
+dev.off()
+
+
+
+```
+
+## Impact of Ribosome Depletion on Read Counts
+
+How does ribosome depletion impact the read counts, ie the reads which can be assigned to an annotated gene locus? In absolute terms they're driven by the large difference in reads sequenced between the two treatments:
+
+```{r echo=FALSE, include=T}
+
+
+#point/lines of counts vs depletion. facet class by count_param, aligner
+
+fig_cnt <- fig_cnt + 1
+
+
+ribDepl_fxOnAbsCounts.gg <- ggplot(all_vs_hg38_NCBIrefSeq_counts.augmented.df  %>% filter(count_params =="MB") %>% filter(stage == "raw") ) + geom_point(aes( x=depleted,y=count, color=Status)) + geom_line(aes(group=paste(supersample, Status),  x=depleted,y=count, color=Status)) + facet_grid(aligner~class) + labs(title= paste("Figure ",fig_cnt,". Absolute Counts for Samples with and without Ribosome Depletion", sep=""), x="Depletion", y="Reads Counted", subtitle = "unfiltered alignments; excluding singletons/multimappers" )+ theme_bw()
+
+ribDepl_fxOnAbsCounts.gg
+
+
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"a_ribDepl_fxOnAbsCounts.png", sep=""))
+ribDepl_fxOnAbsCounts.gg
+dev.off()
+
+
+
+```
+
+It is probably more meaningful to look at the fraction of reads assigned or unassigned. Here the reads from all four replicates of each treatment have been counted and the assignment rates compared, with and without depletion:
+
+```{r echo=FALSE, include = F, warning=FALSE, message=FALSE}
+
+all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df <- all_vs_hg38_NCBIrefSeq_counts.augmented.df %>% ungroup()%>% gather(key = "measure", value = "value", count:frac) %>% mutate(measure = paste( depleted, measure, sep = "_")) %>% select(Status, aligner, stage, count_params, supersample, class, measure, value) %>% spread(key = measure, value = value) 
+
+
+tbl_cnt <- tbl_cnt + 1
+
+readcounts_hisat_M.gt <- all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% group_by(class,supersample) %>% filter(stage == "raw" & count_params == "M" & aligner == "hisat" ) %>% filter(Status %in%c("Assigned", "Unassigned_NoFeatures")  ) %>% gt() %>% tab_spanner(label = "count", columns = c("with_count","without_count")) %>% tab_spanner(label = "relative", columns = c("with_frac","without_frac"))  %>% fmt_percent(columns=c(with_frac, without_frac), decimals=1) %>% cols_label(with_count = "with", without_count = "without",with_frac = "with", without_frac = "without") %>% fmt_scientific(columns = c(with_count, without_count), decimals = 1) %>%  tab_header(title=paste("Table ",tbl_cnt, "a. Read Assignment Change with Ribosome Depletion, by Sample (HISAT)", sep = ""), subtitle="unfiltered alignment, including multimappers and singletons") %>% cols_hide(columns = c("count_params","aligner", "stage"))
+
+
+readcounts_hisat_M.gt
+write(readcounts_hisat_M.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"a_readcounts_hisat_M.html", sep=""))
+
+
+
+
+
+
+readcounts_star_M.gt <- all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% group_by(class,supersample) %>% filter(stage == "raw" & count_params == "M" & aligner == "star" ) %>% filter(Status %in%c("Assigned", "Unassigned_NoFeatures")  ) %>% gt() %>% tab_spanner(label = "count", columns = c("with_count","without_count")) %>% tab_spanner(label = "relative", columns = c("with_frac","without_frac"))  %>% fmt_percent(columns=c(with_frac, without_frac), decimals=1) %>% fmt_scientific(columns = c(with_count, without_count), decimals = 1) %>% cols_label(with_count = "with", without_count = "without",with_frac = "with", without_frac = "without") %>%  tab_header(title=paste("Table ",tbl_cnt, "b. Read Assignment Change with Ribosome Depletion, by Sample (STAR)", sep = ""), subtitle="unfiltered alignment, including multimappers and singletons") %>% cols_hide(columns = c("count_params","aligner", "stage"))
+
+
+readcounts_star_M.gt
+write(readcounts_hisat_M.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"a_readcounts_star_M.html", sep=""))
+
+
+
+
+
+```
+
+```{r echo=FALSE,warning=FALSE, message=FALSE}
+
+
+tbl_cnt <- tbl_cnt + 1
+
+readcounts_hisat_M_avg.gt <- all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% group_by(aligner, stage, count_params, class, Status) %>% summarise( avg_with = mean(with_frac), avg_without = mean(without_frac)) %>% filter(aligner == "hisat" & stage == "raw" & count_params == "M" )  %>% filter(Status %in%c("Assigned")  )%>% ungroup()  %>% gt() %>% tab_spanner(label = "Average Fraction", columns = c("avg_with", "avg_without")) %>% fmt_percent(columns=c(avg_with, avg_without), decimals=1) %>% cols_label(avg_with = "with", avg_without = "without", Status = "", class="") %>% cols_hide(columns = c("count_params","aligner", "stage","Status")) %>%  tab_header(title=paste("Table ",tbl_cnt, "a. Read Assignment Change with Ribosome Depletion, Averaged by Protocol (HISAT)", sep = ""), subtitle="unfiltered alignment; counting singletons & multimappers") 
+
+readcounts_hisat_M_avg.gt
+write(readcounts_hisat_M_avg.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"a_readcounts_hisat_M_avg.html", sep=""))
+
+
+```
+
+```{r echo=FALSE,warning=FALSE, message=FALSE}
+
+
+readcounts_star_M_avg.gt <- all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% group_by(aligner, stage, count_params, class, Status) %>% summarise( avg_with = mean(with_frac), avg_without = mean(without_frac)) %>% filter(aligner == "star" & stage == "raw" & count_params == "M" )  %>% filter(Status %in%c("Assigned")  )%>% ungroup()  %>% gt() %>% tab_spanner(label = "Average Fraction", columns = c("avg_with", "avg_without")) %>% fmt_percent(columns=c(avg_with, avg_without), decimals=1) %>% cols_label(avg_with = "with", avg_without = "without", class = "") %>% cols_hide(columns = c("count_params","aligner", "stage", "Status")) %>%  tab_header(title=paste("Table ",tbl_cnt, "b. Read Assignment Change with Ribosome Depletion, Averaged by Protocol (STAR)", sep = ""), subtitle="unfiltered alignment; counting singletons & multimappers") 
+
+readcounts_star_M_avg.gt
+write(readcounts_star_M_avg.gt %>%  as_raw_html(), paste("results/tables/tbl",tbl_cnt,"b_readcounts_star_M_avg.html", sep=""))
+
+
+```
+
+```{r echo=FALSE, include=FALSE,warning=FALSE, message=FALSE}
+
+fig_cnt <- fig_cnt + 1
+  
+ribDepl_fxOnStatusFrac_MB_hisat.gg <- ggplot(all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% ungroup() %>% select(-c(with_count, without_count)) %>% gather(key = "depletion", value = "fraction", with_frac:without_frac) %>% mutate(depletion = gsub("_frac","",depletion), class = as.factor(class) ) %>% filter(aligner == "hisat" & count_params == "MB" & stage == "multi"), aes(fill = Status, y = fraction, x = supersample) ) + geom_bar(position="stack", stat="identity") + facet_wrap(class ~ depletion , scales = "free_x")+ labs(title= paste("Figure ",fig_cnt,"a. Fraction of Reads by Count Assignment (filtered HISAT alignment)", sep=""), subtitle = "across protocols; with/without ribosome depletion",  x=" ", y="Fraction of Reads", caption = "  " )+ theme_bw()+ theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+
+
+ribDepl_fxOnStatusFrac_MB_hisat.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"a_ribDepl_fxOnStatusFrac_MB_hisat.png", sep=""))
+ribDepl_fxOnStatusFrac_MB_hisat.gg
+dev.off()
+
+```
+
+```{r echo=FALSE, include=FALSE,warning=FALSE, message=FALSE}
+  
+ribDepl_fxOnStatusFrac_MB_star.gg <- ggplot(all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% ungroup() %>% select(-c(with_count, without_count)) %>% gather(key = "depletion", value = "fraction", with_frac:without_frac) %>% mutate(depletion = gsub("_frac","",depletion), class = as.factor(class) ) %>% filter(aligner == "star" & count_params == "MB" & stage == "multi"), aes(fill = Status, y = fraction, x = supersample) ) + geom_bar(position="stack", stat="identity") + facet_wrap(class ~ depletion , scales = "free_x")+ labs(title= paste("Figure ",fig_cnt,"b. Fraction of Reads by Count Assignment (filtered STAR alignment)", sep=""), subtitle = "across protocols; with/without ribosome depletion",  x=" ", y="Fraction of Reads", caption = " " )+ theme_bw()+ theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+
+
+ribDepl_fxOnStatusFrac_MB_star.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"b_ribDepl_fxOnStatusFrac_MB_star.png", sep=""))
+ribDepl_fxOnStatusFrac_MB_star.gg
+dev.off()
+
+```
+
+```{r echo=FALSE,warning=FALSE, message=FALSE}
+
+fig_cnt <- fig_cnt + 1
+
+all_vs_hg38_NCBIrefSeq_counts.with_vs_without.percent_assigned.by_aligner.gg <- ggplot(all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% group_by(aligner, stage, count_params, class, Status) %>% summarise( avg_with = mean(with_frac), avg_without = mean(without_frac)) %>% filter( stage == "multi" & count_params == "MB" )  %>% filter(Status  == "Assigned") %>% gather(key = "depletion", value="value", avg_with:avg_without) %>% mutate(depletion = gsub("avg_", "", depletion)), aes(x=class, y = value, fill =depletion))+ geom_bar( position="dodge", stat="identity") + facet_grid(aligner ~ .) + labs(title= paste("Figure ",fig_cnt," Percentage of Reads which Overlap an Annotated Feature", sep=""), subtitle = "averaged across protocols; with/without ribosome depletion",  x=" ", y="Percent of Reads", caption = "  " )+ theme_bw()+ theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+
+
+
+all_vs_hg38_NCBIrefSeq_counts.with_vs_without.percent_assigned.by_aligner.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_ribDepl_percentAssignedComparison_MB.png", sep=""))
+all_vs_hg38_NCBIrefSeq_counts.with_vs_without.percent_assigned.by_aligner.gg
+dev.off()
+
+
+
+```
+
+Let's try to summarize these results:
+
+```{r echo=FALSE, include= T, eval = T, message=F, warning=F}
+
+
+all_vs_hg38_NCBIrefSeq_counts.delatWith.df <- all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% ungroup() %>% filter(Status == "Assigned") %>% select(c("aligner","stage","count_params","supersample","class","with_frac","without_frac" )) %>% mutate(delta_frac = 100*(with_frac-without_frac), stage= case_match(stage, "multi" ~ "filtered", "raw" ~ "unfiltered", .default = NA), count_params = case_match(count_params, "B"~"strict", "M" ~ "permissive", .default = NA)) %>% filter(!is.na(count_params) & !is.na(stage)) %>% mutate(how_count = paste(stage, " + ", count_params,sep = "")) 
+
+fig_cnt <- fig_cnt + 1
+
+all_vs_hg38_NCBIrefSeq_counts.delatWith.df.gg <- ggplot(all_vs_hg38_NCBIrefSeq_counts.delatWith.df)  + geom_hline(data = . %>% group_by(aligner) %>% summarise(avg_delta = mean(delta_frac)) , aes(yintercept = avg_delta), color = "black", linetype = "dashed") + geom_point(aes(x = how_count, y = delta_frac), shape = "o", color = "black") + geom_hline(data = . %>% group_by(class, aligner) %>% summarise(avg_delta = mean(delta_frac)) , aes(yintercept = avg_delta, color = class))+ geom_point(data = . %>% group_by(class, aligner, how_count) %>% summarise(avg_delta = mean(delta_frac)) , aes(x = how_count, y = avg_delta, color = class))   + facet_grid(aligner~class) + labs(title= paste("Figure ",fig_cnt,".  Overview of Change in Fraction Counted", sep=""), subtitle = "Fraction With - Fraction Without; across aligning, filtering, counting strategies",  x=" ", y="Change in Fraction Counted (%-age points)", caption = " " )+ theme_bw() + theme(axis.text.x = element_text(angle = -90, hjust = 0)) + theme(legend.position="none")+ scale_x_discrete(labels = scales::label_wrap(15))
+
+
+
+
+
+
+all_vs_hg38_NCBIrefSeq_counts.delatWith.df.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_ribDepl_deltaWith_summary.png", sep=""))
+all_vs_hg38_NCBIrefSeq_counts.delatWith.df.gg
+dev.off()
+
+
+```
+
+## STAR Wars: The Singletons Strike Back
+
+Here we look closer at the count breakdowns: - How many reads were assigned to a gene?
+
+-   How many went unassigned because they weren't mapped to a gene locus?
+
+-   How many went unassigned for some other reason (such as mapping to multiple locations, or an improperly mapped read pair)
+
+```{r echo=FALSE, include=FALSE, warning=F, message=F}
+
+fig_cnt <- fig_cnt + 1
+  
+ribDepl_fxOnStatusFrac_MB_star.gg <- ggplot(all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% ungroup() %>% select(-c(with_count, without_count)) %>% gather(key = "depletion", value = "fraction", with_frac:without_frac) %>% mutate(depletion = gsub("_frac","",depletion), class = as.factor(class) ) %>% filter(aligner == "star" & count_params == "MB" & stage == "raw"), aes(fill = Status, y = fraction, x = supersample) ) + geom_bar(position="stack", stat="identity") + facet_wrap(class ~ depletion , scales = "free_x")+ labs(title= paste("Figure ",fig_cnt,"a. Fraction of Reads by Count Assignment (unfiltered STAR alignment)", sep=""), subtitle = "across protocols; with/without ribosome depletion",  x=" ", y="Fraction of Reads", caption = " not counting singletons" )+ theme_bw()+ theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+
+
+
+ribDepl_fxOnStatusFrac_MB_star.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"a_ribDepl_fxOnStatusFrac_MB_star.png", sep=""))
+ribDepl_fxOnStatusFrac_MB_star.gg
+dev.off()
+
+```
+
+```{r echo=FALSE, include=TRUE, warning=F, message=F}
+
+ribDepl_fxOnStatusFrac_MB_hisat.gg <- ggplot(all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% ungroup() %>% select(-c(with_count, without_count)) %>% gather(key = "depletion", value = "fraction", with_frac:without_frac) %>% mutate(depletion = gsub("_frac","",depletion), class = as.factor(class) ) %>% filter(aligner == "hisat" & count_params == "MB" & stage == "raw")  , aes(fill = Status, y = fraction, x = supersample) ) + geom_bar(position="stack", stat="identity") + facet_wrap(class ~ depletion , scales = "free_x")+ labs(title= paste("Figure ",fig_cnt,"a. Fraction of Reads by Count Assignment (unfiltered HISAT alignment)", sep=""), subtitle = "across protocols; with/without ribosome depletion",  x=" ", y="Fraction of Reads", caption = "  " )+ theme_bw()+ theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank())
+
+
+
+
+ribDepl_fxOnStatusFrac_MB_hisat.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"b_ribDepl_fxOnStatusFrac_hisat_star.png", sep=""))
+ribDepl_fxOnStatusFrac_MB_hisat.gg
+dev.off()
+
+```
+
+```{r echo=FALSE, include=TRUE, message=F, warning=FALSE}
+
+fig_cnt <- fig_cnt + 1
+  
+ribDepl_fxOnStatusFrac_allStrat_hisat.gg <-ggplot( all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% ungroup() %>% select(-c(with_count, without_count)) %>% gather(key = "depletion", value = "fraction", with_frac:without_frac) %>% mutate(depletion = gsub("_frac","",depletion), class = as.factor(class) ) %>% filter(aligner == "hisat"  & stage == "raw") %>% group_by(Status, aligner, stage, count_params, class, depletion) %>% summarise(avg_frac = mean(fraction)) %>% mutate(count_params = case_match(count_params, "B" ~ "no singletons, no multimappers", "M" ~ "multimappers and singletons", "MB" ~ "no singletons, multimappers", "z" ~ "singletons, no multimappers")) %>% mutate(count_params = factor(count_params, levels=c( "no singletons, no multimappers",  "singletons, no multimappers", "no singletons, multimappers","multimappers and singletons"))) , aes(fill = Status, y = avg_frac, x = count_params) ) + geom_bar(position="stack", stat="identity") + facet_grid(class ~ depletion , scales = "free_x") + labs(title= paste("Figure ",fig_cnt,"a. Fraction of Reads by Count Assignment (unfiltered HISAT alignment)", sep=""), subtitle = "across protocols; with/without ribosome depletion",  x=" ", y="Fraction of Reads", caption = " not counting singletons" )+ theme_bw()  + theme(axis.text.x = element_text(angle = -30, hjust = 0)) 
+
+
+
+
+ribDepl_fxOnStatusFrac_allStrat_hisat.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"a_ribDepl_fxOnStatusFrac_allStrat_hisat.png", sep=""))
+ribDepl_fxOnStatusFrac_allStrat_hisat.gg
+dev.off()
+
+```
+
+```{r echo=FALSE, include=F}
+
+
+ribDepl_fxOnStatusFrac_allStrat_star.gg <- ggplot( all_vs_hg38_NCBIrefSeq_counts.with_vs_without.df %>% ungroup() %>% select(-c(with_count, without_count)) %>% gather(key = "depletion", value = "fraction", with_frac:without_frac) %>% mutate(depletion = gsub("_frac","",depletion), class = as.factor(class) ) %>% filter(aligner == "star"  & stage == "raw") %>% group_by(Status, aligner, stage, count_params, class, depletion) %>% summarise(avg_frac = mean(fraction)) %>% mutate(count_params = case_match(count_params, "B" ~ "no singletons, no multimappers", "M" ~ "multimappers and singletons", "MB" ~ "no singletons, multimappers", "z" ~ "singletons, no multimappers")) %>% mutate(count_params = factor(count_params, levels=c( "no singletons, no multimappers",  "singletons, no multimappers", "no singletons, multimappers","multimappers and singletons"))) , aes(fill = Status, y = avg_frac, x = count_params) ) + geom_bar(position="stack", stat="identity") + facet_grid(class ~ depletion , scales = "free_x") + labs(title= paste("Figure ",fig_cnt,"a. Fraction of Reads by Count Assignment (unfiltered STAR alignment)", sep=""), subtitle = "across protocols; with/without ribosome depletion",  x=" ", y="Fraction of Reads", caption = " not counting singletons" )+ theme_bw()  + theme(axis.text.x = element_text(angle = -30, hjust = 0)) 
+
+
+
+
+
+ribDepl_fxOnStatusFrac_allStrat_star.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"b_ribDepl_fxOnStatusFrac_allStrat_star.png", sep=""))
+ribDepl_fxOnStatusFrac_allStrat_star.gg
+dev.off()
+
+```
+
+## Metagenomics of Badly Mapping Reads
+
+```{r echo=FALSE, include=FALSE, warning=FALSE, message=FALSE}
+
+kraken_report <- read_delim("data/intermediate/kraken/all.hisatRaw.krakenated", delim = "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE)
+
+names(kraken_report) <- c("sample","percent_covered", "count_covered","count_at", "phylo_level", "ncbi_taxid", "scientific_name")
+
+
+kraken_report.filt.df <- kraken_report %>% filter(ncbi_taxid %in% c(0,1,544448,2093,9606))
+#ie ncbi_taxid in unclassified, root, Mycoplasmatota, Mycoplasma, Homo Sapiens
+kraken_report.filt.df %<>% select(c("sample","percent_covered", "scientific_name")) %>% spread(key=scientific_name, value = percent_covered) %>% mutate(Other_Mycoplasmatota = Mycoplasmatota-Mycoplasma, Homo_sapiens = `Homo sapiens`) %>% mutate(Everyone_Else = root -Homo_sapiens- Mycoplasmatota , Unclassified = unclassified) %>% select(c("sample","Homo_sapiens", "Unclassified", "Other_Mycoplasmatota", "Mycoplasma", "Everyone_Else"))%>% gather(key = "taxon", value = "percent", -c("sample")) 
+
+kraken_report.filt.df$taxon <- factor(kraken_report.filt.df$taxon, levels = c( "Homo_sapiens",  "Other_Mycoplasmatota", "Mycoplasma", "Everyone_Else","Unclassified"))
+
+kraken_report.filt.aug.df <- inner_join(kraken_report.filt.df, data_sets.df %>% filter(subgroups=="all") %>% select(c("name","depleted","class")), by=c("sample"="name"))
+
+kraken_report.filt.aug.df <- inner_join(kraken_report.filt.aug.df,readcount_process.spread %>% filter(aligner=="hisat") %>% select(c(sample, mapping_retention)), by=c("sample"="sample")) %>% mutate(percent_rescaled = percent*(1-mapping_retention) )
+
+```
+
+Reads which did not map, or did not map properly, were collected for each sample and their taxonomy was estimated by Kraken.
+
+```{r echo=FALSE, include=TRUE, warning=FALSE, message=FALSE}
+fig_cnt <- fig_cnt + 1
+kraken_report.filt.aug.bySamp.rel.gg <- ggplot(kraken_report.filt.aug.df, aes( x = sample, y = percent, fill = taxon)) + geom_bar( position="stack", stat = "identity") + geom_bar(data = . %>% filter(taxon != "Homo_sapiens"), color = "black",  position="stack", stat = "identity")+ facet_wrap(class ~depleted, scales = "free_x") + theme_bw()+ theme( axis.text.x=element_blank(), axis.ticks.x=element_blank()) + labs(title= paste("Figure ",fig_cnt,"a. Taxonomic Assignment of Badly Mapped Reads (fraction of badly mapped)", sep=""), subtitle = "Kraken results by sample for unmapped/singletons",  x=" ", y="Percent of Reads", caption = " " )
+
+
+kraken_report.filt.aug.bySamp.rel.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"a_krakenMetagenomics_bySample_relativeFrac.png", sep=""))
+kraken_report.filt.aug.bySamp.rel.gg
+dev.off()
+```
+
+```{r echo=FALSE, include=FALSE, warning=FALSE, message=FALSE}
+
+kraken_report.filt.aug.bySamp.abs.gg <- ggplot(kraken_report.filt.aug.df, aes( x = sample, y = percent_rescaled, fill = taxon)) + geom_bar( position="stack", stat = "identity") + geom_bar(data = . %>% filter(taxon != "Homo_sapiens"), color = "black",  position="stack", stat = "identity")+ facet_wrap(class ~depleted, scales = "free_x") + theme_bw() + theme( axis.text.x=element_blank(), axis.ticks.x=element_blank()) + scale_y_continuous(limits = c(0,100))  + labs(title= paste("Figure ",fig_cnt,"b. Taxonomic Assignment of Badly Mapped Reads (fraction of all sequenced)", sep=""), subtitle = "Kraken results by sample for unmapped/singletons",  x=" ", y="Percent of Reads", caption = " " )
+
+kraken_report.filt.aug.bySamp.abs.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"b_krakenMetagenomics_bySample_absoluteFrac.png", sep=""))
+kraken_report.filt.aug.bySamp.abs.gg
+dev.off()
+
+
+```
+
+```{r echo=FALSE, include=TRUE, warning=FALSE, message=FALSE}
+fig_cnt <- fig_cnt + 1
+kraken_report.filt.aug.byClass.rel.gg <- ggplot(kraken_report.filt.aug.df %>% group_by(depleted, class, taxon) %>% summarise(percent = sum(percent)/n()), aes( x = depleted, y = percent, fill = taxon)) + geom_bar( position="stack", stat = "identity") + geom_bar(data = . %>% filter(taxon != "Homo_sapiens"), color = "black",  position="stack", stat = "identity")+ facet_wrap(.~class) + theme_bw() + labs(title= paste("Figure ",fig_cnt,"a. Taxonomic Assignment of Badly Mapped Reads (fraction of badly mapped)", sep=""), subtitle = "Kraken results by class for unmapped/singletons",  x="Ribosome Depletion", y="Percent of Reads", caption = " " )
+
+kraken_report.filt.aug.byClass.rel.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"a_krakenMetagenomics_byClass_relativeFrac.png", sep=""))
+kraken_report.filt.aug.byClass.rel.gg
+dev.off()
+
+
+
+```
+
+```{r echo=FALSE, include=TRUE, warning=FALSE, message=FALSE}
+
+kraken_report.filt.aug.byClass.abs.gg <- ggplot(kraken_report.filt.aug.df %>% group_by(depleted, class, taxon) %>% summarise(percent = sum(percent_rescaled)/n()), aes( x = depleted, y = percent, fill = taxon)) + geom_bar( position="stack", stat = "identity") + geom_bar(data = . %>% filter(taxon != "Homo_sapiens"), color = "black",  position="stack", stat = "identity")+ facet_wrap(.~class) + theme_bw()  + scale_y_continuous(limits = c(0,100)) + labs(title= paste("Figure ",fig_cnt,"b. Taxonomic Assignment of Badly Mapped Reads (fraction of all sequenced)", sep=""), subtitle = "Kraken results by class for unmapped/singletons",  x=" ", y="Percent of Reads", caption = " " )
+
+
+
+kraken_report.filt.aug.byClass.abs.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"b_krakenMetagenomics_byClass_absoluteFrac.png", sep=""))
+kraken_report.filt.aug.byClass.abs.gg
+dev.off()
+
+
+```
+
+## Mycoplasma reads
+
+```         
+
+gene_name   gene_product
+MG_RS00775  16S ribosomal RNA
+MG_RS00780  23S ribosomal RNA
+MG_RS01080  adhesin P110
+MG_RS01405  nicotinate-nucleotide adenylyltransferase
+MG_RS01485  hypothetical protein
+MG_RS02130  hypothetical protein
+MG_RS02905  hypothetical protein
+[intergenic]    -
+gyrB    DNA topoisomerase (ATP-hydrolyzing) subunit B
+lon endopeptidase La
+pdhA    pyruvate dehydrogenase (acetyl-transferring) E1 component subunit alpha
+rplS    50S ribosomal protein L19
+rpsP    30S ribosomal protein S16
+```
+
+```{r echo=FALSE, include=FALSE, warning=FALSE, message=FALSE}
+
+
+all.mycoG37_genes.full_report.df <- read_delim("data/intermediate/mycoplasma/all.mycoG37_genes.full_report.bed", delim = "\t", escape_double = FALSE, col_names = FALSE, trim_ws = TRUE)
+
+names(all.mycoG37_genes.full_report.df) <- c("contig", "start", "end", "depth", "gene_name", "sample")
+
+all.mycoG37_genes.full_report.rankt.df <- inner_join( all.mycoG37_genes.full_report.df %>% group_by(sample, gene_name) %>% summarize(depth = max(depth)) %>% mutate(ronk = rank(-depth), gene_name = case_match(gene_name, "." ~ "[intergenic]", .default =  gene_name))  ,data_sets.df %>% filter(subgroups == "all") %>% select(c("name", "depleted", "class")) , by=c("sample"="name"))
+
+all.mycoG37_genes.full_report.rankt.df %>% ungroup() %>% group_by(gene_name) %>% summarise(avg_rank = mean(ronk)) %>% filter(avg_rank < 20)  %>% gt() %>% cols_hide(columns = c("avg_rank")) %>%  tab_header(title=paste("Table ",tbl_cnt, ". Top ranked mycoplasma genes according to appearence across all samples", sep = ""), subtitle="") 
+
+
+library("GGally")
+ggpairs(all.mycoG37_genes.full_report.rankt.df %>% ungroup() %>% group_by(class, gene_name) %>% summarise(avg_rank = mean(ronk)) %>% spread(key = class, value = avg_rank) %>% select(-c(gene_name)) )
+
+ggpairs(all.mycoG37_genes.full_report.rankt.df %>% ungroup() %>% group_by(class, gene_name) %>% summarise(avg_rank = mean(ronk)) %>% spread(key = class, value = avg_rank) %>% select(-c(gene_name)) %>%  filter(if_any(everything(), ~ . < 50))) + scale_y_log10() + scale_x_log10()
+
+
+all.mycoG37_genes.full_report.rankt.coarse.df <- all.mycoG37_genes.full_report.rankt.df %>% ungroup() %>% group_by(class, gene_name) %>% summarise(avg_rank = mean(ronk)) 
+
+all.mycoG37_genes.full_report.rankt.coarse.sprud.df <- all.mycoG37_genes.full_report.rankt.df %>% ungroup() %>% group_by(class, gene_name) %>% summarise(avg_rank = mean(ronk)) 
+
+
+#test.df <- all.mycoG37_genes.full_report.rankt.df %>% ungroup() %>% group_by(class, gene_name) %>% summarise(avg_rank = mean(ronk)) %>% spread(key = class, value = avg_rank)  %>%  filter(if_any(everything(), ~ . < 15))  %>% gather(key=class, value = rank, -c(gene_name)) 
+
+library("ggbump")
+
+all.mycoG37_genes.full_report.rankt.df$class <- factor(all.mycoG37_genes.full_report.rankt.df$class, levels = c( "Total_ExRNA","Free_RNA","RNA_Control", "P100_pellet", "P40_pellet")) 
+
+fig_cnt <- fig_cnt + 1 
+
+all.mycoG37_genes.full_report.rankt.between_class.gg <- ggplot(all.mycoG37_genes.full_report.rankt.df %>% ungroup() %>% group_by(class, gene_name) %>% summarise(avg_rank = mean(ronk)) %>% spread(key = class, value = avg_rank)) + geom_bump( data = . %>% gather(key=class, value = rank, -c(gene_name)) , aes(x=class, y = rank, group = gene_name), color = "black", alpha = 0.5)  + geom_bump( data = . %>% filter(if_any(-c("gene_name"), ~ . < 15)) %>% gather(key=class, value = rank, -c(gene_name)) , aes(x=class, y = rank, group = gene_name), color = "red") + geom_point( data = . %>% filter(if_any(-c("gene_name"), ~ . < 15)) %>% gather(key=class, value = rank, -c(gene_name)) , aes(x=class, y = rank, group = gene_name), color = "blue") + scale_y_log10() + theme_bw() + labs(title= paste("Figure ",fig_cnt,". Genes with highest rank in at least one class", sep=""), subtitle = "genes in mycoplasma G37, ranked by size of highest spike",  x="class", y="average rank", caption = " " ) #+ geom_point(aes(x=class, y = rank, color = gene_name))
+
+
+
+all.mycoG37_genes.full_report.rankt.between_class.gg
+png(height =  800, width = 1300, filename = paste("results/figures/fig",fig_cnt,"_avgGeneRank_betweenClasses_mycoReads.png", sep=""))
+all.mycoG37_genes.full_report.rankt.between_class.gg
+dev.off()
+
+
+
+```
+
+# Bibliography

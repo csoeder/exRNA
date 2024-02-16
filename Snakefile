@@ -899,6 +899,53 @@ rule all_mycoplasma_investigations:	#forces a FASTP clean
 
 
 
+rule write_report:
+	input:
+		reference_genome_summary = ["data/summaries/reference_genomes/reference_genomes.summary"],
+#		reference_annotation_summary = [""],
+		sequenced_reads_summary=["data/summaries/intermediate/FASTP/all.sequenced_reads.dat", "data/summaries/intermediate/read_lengths/all.sequenced_lengths.dat"],
+		aligned_reads_summary = expand("data/summaries/intermediate/BAMs/all.vs_{genome}.summary", genome=["hg38","humanRibo","humanTrna","mycoG37","myco1654_15",]),#"mapspliceUniq","mapspliceRando"]),
+		the_countz = expand("data/intermediate/counts/all.vs_hg38.NCBIrefSeq.{aligner}{filt}.{count_params}.counts.summary",aligner = ["star", "mapsplice","hisat"], filt = ["Raw", "Multi", "Uniq"], count_params = ["M","B","MB","z"] ),
+		kraken = ["data/intermediate/kraken/all.hisatRaw.krakenated"],
+		myco = ["data/intermediate/mycoplasma/all.mycoG37_genes.full_report.bed"],
+	output:
+		pdf_out="results/exRNA2023_results.pdf",
+	params:
+		runmem_gb=8,
+		runtime="1:00:00",
+		cores=2,
+	message:
+		"writing up the results.... "
+	run:
+		pandoc_path="/nas/longleaf/apps/rstudio/1.0.136/bin/pandoc"
+		pwd = subprocess.check_output("pwd",shell=True).decode().rstrip()+"/"
+		shell("""mkdir -p results/figures/supp/ results/tables/supp/""")
+		shell(""" R -e "setwd('{pwd}');Sys.setenv(RSTUDIO_PANDOC='{pandoc_path}')" -e  "peaDubDee='{pwd}'; rmarkdown::render('scripts/HumanDenovos.Rmd',output_file='{pwd}{output.pdf_out}')"  """)
+#		shell(""" tar cf results.tar results/ """)
+
+
+
+
+
+
+rule all:
+	input: 
+		pdf_out="results/exRNA2023_results.pdf",
+	params:
+		runmem_gb=1,
+		runtime="0:01:00",
+		cores=1,
+	run:
+		shell(""" mkdir -p results/figures/; touch results/figures/null.png; for fig in results/figures/*png; do mv $fig $(echo $fig| rev | cut -f 2- -d . | rev ).$(date +%d_%b_%Y).png; done;  rm results/figures/null.*.png; """)
+		shell(""" mkdir -p results/figures/supp/ ; touch results/figures/supp/null.png; for fig in results/figures/supp/*png; do mv $fig $(echo $fig| rev | cut -f 2- -d . | rev ).$(date +%d_%b_%Y).png; done; rm results/figures/supp/null.*.png; """)
+
+		shell(""" mkdir -p results/tables/ ; touch results/tables/null.tmp ; for phial in $(ls -p results/tables/ | grep -v /); do pre=$(echo $phial | rev | cut -f 2- -d . | rev ); suff=$(echo $phial | rev | cut -f 1 -d . | rev ); mv results/tables/$phial results/tables/$pre.$(date +%d_%b_%Y).$suff; done ; rm results/tables/null.*.tmp; """)
+		shell(""" mkdir -p results/tables/supp/ ; touch results/tables/supp/null.tmp ; for phial in $(ls -p results/tables/supp/ | grep -v /); do pre=$(echo $phial | rev | cut -f 2- -d . | rev ); suff=$(echo $phial | rev | cut -f 1 -d . | rev ); mv results/tables/supp/$phial results/tables/supp/$pre.$(date +%d_%b_%Y).$suff; done ; rm results/tables/supp/null.*.tmp; """)
+
+		shell(""" mv results/exRNA2023_results.pdf results/exRNA2023_results.$(date +%d_%b_%Y).pdf """)
+		shell(""" tar cf exRNA_results.$(date +%d_%b_%Y).tar results/ """)
+
+
 
 
 

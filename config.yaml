@@ -27,6 +27,12 @@ reference_genomes:
       fai: /proj/cdjones_lab/Genomics_Data_Commons/genomes/Mycoplasma/genitalium_G37/GCF_000027325.1_ASM2732v1_genomic.fna.fai
       link: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000027325.1/
       source: NCBI
+    - name: myco1654_15
+      species: mycoplasma
+      path: /proj/cdjones_lab/Genomics_Data_Commons/genomes/Mycoplasma/1654_15/GCF_012516495.1_ASM1251649v1_genomic.fna
+      fai: /proj/cdjones_lab/Genomics_Data_Commons/genomes/Mycoplasma/1654_15/GCF_012516495.1_ASM1251649v1_genomic.fna.fai
+      link: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000027325.1/
+      source: NCBI
 
 annotations:
     - name: NCBIrefSeq
