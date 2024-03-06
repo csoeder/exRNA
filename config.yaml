@@ -34,6 +34,16 @@ reference_genomes:
       link: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000027325.1/
       source: NCBI
 
+    - name: hs1
+      species: homo sapiens
+      path: /proj/cdjones_lab/Genomics_Data_Commons/genomes/homo_sapiens/hs1/hs1.fa
+      fai: /proj/cdjones_lab/Genomics_Data_Commons/genomes/homo_sapiens/hs1/hs1.fa.fai
+#      bowtie: /proj/cdjones_lab/Genomics_Data_Commons/genomes/homo_sapiens/hg38/hg38_bowtie/hg38
+#      bowtie2: /proj/cdjones_lab/Genomics_Data_Commons/genomes/homo_sapiens/hg38/hg38_bowtie2/hg38
+#      split: /proj/cdjones_lab/Genomics_Data_Commons/genomes/homo_sapiens/hg38/hg38_split/
+      link: https://hgdownload.soe.ucsc.edu/goldenPath/hs1/bigZips/hs1.fa.gz
+      source: UCSC Genome Browser
+      
 annotations:
     - name: NCBIrefSeq
       genome: hg38
@@ -42,6 +52,13 @@ annotations:
       link: https://genome.ucsc.edu/cgi-bin/hgTables
       instructions: group:genes;track:NCBI RefSeq;table:ncbiRefSeqCurated
       source: UCSC Genome Browser
+    - name: NCBIrefSeqHS1
+      genome: hs1
+#      bed_path: /proj/cdjones_lab/Genomics_Data_Commons/annotations/homo_sapiens/ncbiRefSeqCurated.hg38.bed
+      gtf_path: /proj/cdjones_lab/Genomics_Data_Commons/annotations/homo_sapiens/hs1.ncbiRefSeq.gtf
+      link: https://hgdownload.soe.ucsc.edu/goldenPath/hs1/bigZips/genes/hs1.ncbiRefSeq.gtf.gz
+      
+      
 
 data_sets:
     - name: D2R2_17_Yes
