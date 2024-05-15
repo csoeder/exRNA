@@ -1,0 +1,65 @@
+reference_genomes:
+    - name: zmT2T
+      species: zea mays
+      path: /proj/cdjones_lab/Genomics_Data_Commons/genomes/zea_mays/GCA_022117705.1_Zm-Mo17-REFERENCE-CAU-T2T-assembly_genomic.fna
+      fai: /proj/cdjones_lab/Genomics_Data_Commons/genomes/zea_mays/GCA_022117705.1_Zm-Mo17-REFERENCE-CAU-T2T-assembly_genomic.fna.fai
+      link: https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_022117705.1/
+      source: NCBI
+    - name: zmB73v5
+      species: zea mays
+      path: /proj/cdjones_lab/Genomics_Data_Commons/genomes/zea_mays/GCF_902167145.1_Zm-B73-REFERENCE-NAM-5.0_genomic.fna
+      fai: /proj/cdjones_lab/Genomics_Data_Commons/genomes/zea_mays/GCF_902167145.1_Zm-B73-REFERENCE-NAM-5.0_genomic.fna.fai
+      link: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_902167145.1/
+
+
+
+
+data_sets:
+    - name: A02
+      path: data/raw/sequence/A02/
+      paired: True
+      readsfile1: C1_P100_E200013601_L01_A02_1.fastq
+      readsfile2: C1_P100_E200013601_L01_A02_2.fastq
+      treatment: C
+      protocol: P100
+      subgroups: [all, P100, C]
+    - name: B02
+      paired: True
+      path: data/raw/sequence/B02/
+      readsfile1: C2_LSW_E200013601_L01_B02_1.fastq
+      readsfile2: C2_LSW_E200013601_L01_B02_2.fastq
+      treatment: C
+      protocol: LSW
+      subgroups: [all, LSW, C]
+    - name: C02
+      paired: True
+      path: data/raw/sequence/C02/
+      readsfile1: C2_P100_E200013601_L01_C02_1.fastq
+      readsfile2: C2_P100_E200013601_L01_C02_2.fastq
+      treatment: C
+      protocol: P100
+      subgroups: [all, P100, C]
+    - name: D02
+      paired: True
+      path: data/raw/sequence/D02/
+      readsfile1: C3_P100_E200013601_L01_D02_1.fastq
+      readsfile2: C3_P100_E200013601_L01_D02_2.fastq
+      treatment: C
+      protocol: P100
+      subgroups: [all, P100, C]
+    - name: E02
+      paired: True
+      path: data/raw/sequence/E02/
+      readsfile1: I1_P100_E200013601_L01_E02_1.fastq
+      readsfile2: I1_P100_E200013601_L01_E02_2.fastq
+      treatment: I
+      protocol: P100
+      subgroups: [all, P100, I]
+    - name: F02
+      paired: True
+      path: data/raw/sequence/F02/
+      readsfile1: I2_P100_E200013601_L01_F02_1.fastq
+      readsfile2: I2_P100_E200013601_L01_F02_2.fastq
+      treatment: I
+      protocol: P100
+      subgroups: [all, P100, I]
