@@ -1,0 +1,188 @@
+reference_genomes:
+    - name: zmT2T
+      species: zea mays
+      path: /proj/cdjones_lab/Genomics_Data_Commons/genomes/zea_mays/GCA_022117705.1_Zm-Mo17-REFERENCE-CAU-T2T-assembly_genomic.fna
+      fai: /proj/cdjones_lab/Genomics_Data_Commons/genomes/zea_mays/GCA_022117705.1_Zm-Mo17-REFERENCE-CAU-T2T-assembly_genomic.fna.fai
+      link: https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_022117705.1/
+      source: NCBI
+    - name: zmB73v5
+      species: zea mays
+      path: /proj/cdjones_lab/Genomics_Data_Commons/genomes/zea_mays/GCF_902167145.1_Zm-B73-REFERENCE-NAM-5.0_genomic.fna
+      fai: /proj/cdjones_lab/Genomics_Data_Commons/genomes/zea_mays/GCF_902167145.1_Zm-B73-REFERENCE-NAM-5.0_genomic.fna.fai
+      link: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_902167145.1/
+      source: NCBI/MaizeGDB
+    - name: mycoG37
+      species: mycoplasma
+      path: /proj/cdjones_lab/Genomics_Data_Commons/genomes/Mycoplasma/genitalium_G37/GCF_000027325.1_ASM2732v1_genomic.fna
+      fai: /proj/cdjones_lab/Genomics_Data_Commons/genomes/Mycoplasma/genitalium_G37/GCF_000027325.1_ASM2732v1_genomic.fna.fai
+      link: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000027325.1/
+      source: NCBI
+    - name: myco1654_15
+      species: mycoplasma
+      path: /proj/cdjones_lab/Genomics_Data_Commons/genomes/Mycoplasma/1654_15/GCF_012516495.1_ASM1251649v1_genomic.fna
+      fai: /proj/cdjones_lab/Genomics_Data_Commons/genomes/Mycoplasma/1654_15/GCF_012516495.1_ASM1251649v1_genomic.fna.fai
+      link: https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000027325.1/
+      source: NCBI
+
+      
+
+annotations:
+    - name: NCBIrefSeq
+      genome: hg38
+      bed_path: /proj/cdjones_lab/Genomics_Data_Commons/annotations/homo_sapiens/ncbiRefSeqCurated.hg38.bed
+      gtf_path: /proj/cdjones_lab/Genomics_Data_Commons/annotations/homo_sapiens/ncbiRefSeqCurated.hg38.gtf
+      link: https://genome.ucsc.edu/cgi-bin/hgTables
+      instructions: group:genes;track:NCBI RefSeq;table:ncbiRefSeqCurated
+      source: UCSC Genome Browser
+    - name: NCBIrefSeqHS1
+      genome: hs1
+#      bed_path: /proj/cdjones_lab/Genomics_Data_Commons/annotations/homo_sapiens/ncbiRefSeqCurated.hg38.bed
+      gtf_path: /proj/cdjones_lab/Genomics_Data_Commons/annotations/homo_sapiens/hs1.ncbiRefSeq.gtf
+      link: https://hgdownload.soe.ucsc.edu/goldenPath/hs1/bigZips/genes/hs1.ncbiRefSeq.gtf.gz
+      
+
+data_sets:
+    - name: C1_LSW
+      paired: True
+      path: data/raw/sequence/C1_LSW/
+      readsfile1: C1_LSW_R1.fastq
+      readsfile2: C1_LSW_R2.fastq
+      treatment: C
+      protocol: LSW
+      subgroups: [all,C,LSW,]
+    - name: C1_P100
+      paired: True
+      path: data/raw/sequence/C1_P100/
+      readsfile1: C1_P100_R1.fastq
+      readsfile2: C1_P100_R2.fastq
+      treatment: C
+      protocol: P100
+      subgroups: [all,C,P100,]
+    - name: C1_S100
+      paired: True
+      path: data/raw/sequence/C1_S100/
+      readsfile1: C1_S100_R1.fastq
+      readsfile2: C1_S100_R2.fastq
+      treatment: C
+      protocol: S100
+      subgroups: [all,C,S100,]
+    - name: C2_LSW
+      paired: True
+      path: data/raw/sequence/C2_LSW/
+      readsfile1: C2_LSW_R1.fastq
+      readsfile2: C2_LSW_R2.fastq
+      treatment: C
+      protocol: LSW
+      subgroups: [all,C,LSW,]
+    - name: C2_P100
+      paired: True
+      path: data/raw/sequence/C2_P100/
+      readsfile1: C2_P100_R1.fastq
+      readsfile2: C2_P100_R2.fastq
+      treatment: C
+      protocol: P100
+      subgroups: [all,C,P100,]
+    - name: C2_S100
+      paired: True
+      path: data/raw/sequence/C2_S100/
+      readsfile1: C2_S100_R1.fastq
+      readsfile2: C2_S100_R2.fastq
+      treatment: C
+      protocol: S100
+      subgroups: [all,C,S100,]
+    - name: C3_LSW
+      paired: True
+      path: data/raw/sequence/C3_LSW/
+      readsfile1: C3_LSW_R1.fastq
+      readsfile2: C3_LSW_R2.fastq
+      treatment: C
+      protocol: LSW
+      subgroups: [all,C,LSW,]
+    - name: C3_P100
+      paired: True
+      path: data/raw/sequence/C3_P100/
+      readsfile1: C3_P100_R1.fastq
+      readsfile2: C3_P100_R2.fastq
+      treatment: C
+      protocol: P100
+      subgroups: [all,C,P100,]
+    - name: C3_S100
+      paired: True
+      path: data/raw/sequence/C3_S100/
+      readsfile1: C3_S100_R1.fastq
+      readsfile2: C3_S100_R2.fastq
+      treatment: C
+      protocol: S100
+      subgroups: [all,C,S100,]
+    - name: I1_LSW
+      paired: True
+      path: data/raw/sequence/I1_LSW/
+      readsfile1: I1_LSW_R1.fastq
+      readsfile2: I1_LSW_R2.fastq
+      treatment: I
+      protocol: LSW
+      subgroups: [all,I,LSW,]
+    - name: I1_P100
+      paired: True
+      path: data/raw/sequence/I1_P100/
+      readsfile1: I1_P100_R1.fastq
+      readsfile2: I1_P100_R2.fastq
+      treatment: I
+      protocol: P100
+      subgroups: [all,I,P100,]
+    - name: I1_S100
+      paired: True
+      path: data/raw/sequence/I1_S100/
+      readsfile1: I1_S100_R1.fastq
+      readsfile2: I1_S100_R2.fastq
+      treatment: I
+      protocol: S100
+      subgroups: [all,I,S100,]
+    - name: I2_LSW
+      paired: True
+      path: data/raw/sequence/I2_LSW/
+      readsfile1: I2_LSW_R1.fastq
+      readsfile2: I2_LSW_R2.fastq
+      treatment: I
+      protocol: LSW
+      subgroups: [all,I,LSW,]
+    - name: I2_P100
+      paired: True
+      path: data/raw/sequence/I2_P100/
+      readsfile1: I2_P100_R1.fastq
+      readsfile2: I2_P100_R2.fastq
+      protocol: P100
+      treatment: I
+      subgroups: [all,I,P100,]
+    - name: I2_S100
+      paired: True
+      path: data/raw/sequence/I2_S100/
+      readsfile1: I2_S100_R1.fastq
+      readsfile2: I2_S100_R2.fastq
+      treatment: I
+      protocol: S100
+      subgroups: [all,I,S100,]
+    - name: I3_LSW
+      paired: True
+      path: data/raw/sequence/I3_LSW/
+      readsfile1: I3_LSW_R1.fastq
+      readsfile2: I3_LSW_R2.fastq
+      treatment: I
+      protocol: LSW
+      subgroups: [all,I,LSW,]
+    - name: I3_P100
+      paired: True
+      path: data/raw/sequence/I3_P100/
+      readsfile1: I3_P100_R1.fastq
+      readsfile2: I3_P100_R2.fastq
+      treatment: I
+      protocol: P100
+      subgroups: [all,I,P100,]
+    - name: I3_S100
+      paired: True
+      path: data/raw/sequence/I3_S100/
+      readsfile1: I3_S100_R1.fastq
+      readsfile2: I3_S100_R2.fastq
+      treatment: I
+      protocol: S100
+      subgroups: [all,I,S100,]
