@@ -519,14 +519,17 @@ rule hisat2_mapper:
 	message:
 		"filtering raw {wildcards.sample} alignment to {wildcards.ref_genome} to remove multimappers entirely.... "
 	run:
-		shell(""" mkdir -p mapped_reads/hisatRaw/{wildcards.sample}/ utils/HISAT2_indicies/{wildcards.ref_genome}/  """)
+		uniqifier = subprocess.check_output(""" echo $(date +%N)*$(date +%N) | bc | md5sum | cut -f 1 -d " "  """  ,shell=True).decode().rstrip()[-10:].upper()		
+		tmp_folder = "/work/users/c/s/csoeder/" + uniqifier
+
+		shell(""" mkdir -p mapped_reads/hisatRaw/{wildcards.sample}/ utils/HISAT2_indicies/{wildcards.ref_genome}/ {tmp_folder} """)
 		if sample_by_name[wildcards.sample]['paired']:
 			readsIn = " -1 %s -2 %s " % tuple(input.reads_in)
 		else:
 			readsIn = " -m %s " % tuple(input.reads_in)
 			 
 		shell(""" hisat2 -p {params.cores} -k 5 --new-summary --summary-file {output.summary} -x utils/HISAT2_indicies/{wildcards.ref_genome} {readsIn} -S data/intermediate/mapped_reads/hisatRaw/{wildcards.sample}.vs_{wildcards.ref_genome}.hisatRaw.sam """)
-		shell(""" samtools view -Shb data/intermediate/mapped_reads/hisatRaw/{wildcards.sample}.vs_{wildcards.ref_genome}.hisatRaw.sam | samtools sort - > {output.rawHisat_bam} """)
+		shell(""" samtools view -Shb data/intermediate/mapped_reads/hisatRaw/{wildcards.sample}.vs_{wildcards.ref_genome}.hisatRaw.sam | samtools sort -T {tmp_folder}/sort_ - > {output.rawHisat_bam} """)
 		shell(""" samtools index {output.rawHisat_bam} """)
 #--no-mixed
 
@@ -545,14 +548,18 @@ rule hisat2_lax:
 	message:
 		"filtering raw {wildcards.sample} alignment to {wildcards.ref_genome} to remove multimappers entirely.... "
 	run:
-		shell(""" mkdir -p mapped_reads/hisatLaxRaw/{wildcards.sample}/ utils/HISAT2_indicies/{wildcards.ref_genome}/  """)
+
+		uniqifier = subprocess.check_output(""" echo $(date +%N)*$(date +%N) | bc | md5sum | cut -f 1 -d " "  """  ,shell=True).decode().rstrip()[-10:].upper()		
+		tmp_folder = "/work/users/c/s/csoeder/" + uniqifier
+
+		shell(""" mkdir -p mapped_reads/hisatLaxRaw/{wildcards.sample}/ utils/HISAT2_indicies/{wildcards.ref_genome}/ {tmp_folder} """)
 		if sample_by_name[wildcards.sample]['paired']:
 			readsIn = " -1 %s -2 %s " % tuple(input.reads_in)
 		else:
 			readsIn = " -m %s " % tuple(input.reads_in)
 			 
 		shell(""" hisat2 --mp 4,1 --rfg 4,2 -p {params.cores} -k 5 --new-summary --summary-file {output.summary} -x utils/HISAT2_indicies/{wildcards.ref_genome} {readsIn} -S data/intermediate/mapped_reads/hisatLaxRaw/{wildcards.sample}.vs_{wildcards.ref_genome}.hisatLaxRaw.sam """)
-		shell(""" samtools view -Shb data/intermediate/mapped_reads/hisatLaxRaw/{wildcards.sample}.vs_{wildcards.ref_genome}.hisatLaxRaw.sam | samtools sort - > {output.rawHisat_bam} """)
+		shell(""" samtools view -Shb data/intermediate/mapped_reads/hisatLaxRaw/{wildcards.sample}.vs_{wildcards.ref_genome}.hisatLaxRaw.sam | samtools sort -T {tmp_folder}/sort_ - > {output.rawHisat_bam} """)
 		shell(""" samtools index {output.rawHisat_bam} """)
 
 
@@ -575,9 +582,13 @@ rule multiFilter:
 	message:
 		"filtering raw {wildcards.sample} alignment to {wildcards.ref_genome} for quality, duplication.... "
 	run:
-		shell(""" mkdir -p mapped_reads/mapsplice{wildcards.aligner}/{wildcards.sample}/ """)
+
+		uniqifier = subprocess.check_output(""" echo $(date +%N)*$(date +%N) | bc | md5sum | cut -f 1 -d " "  """  ,shell=True).decode().rstrip()[-10:].upper()		
+		tmp_folder = "/work/users/c/s/csoeder/" + uniqifier
+
+		shell(""" mkdir -p mapped_reads/mapsplice{wildcards.aligner}/{wildcards.sample}/ {tmp_folder} """)
 		shell(""" 
-			samtools sort -n {input.raw_bam} | samtools fixmate -m - - | samtools sort - | samtools markdup {params.dup_flg} - - | samtools view -bh {params.quality} | /nas/longleaf/home/csoeder/modules/bamaddrg/bamaddrg -b - -s {wildcards.sample}  > {output.multi_bam} ;
+			samtools sort -T {tmp_folder}/sortN_ -n {input.raw_bam} | samtools fixmate -m - - | samtools sort -T {tmp_folder}/sort_ - | samtools markdup -T {tmp_folder}/mrkdp_ {params.dup_flg} - - | samtools view -bh {params.quality} | /nas/longleaf/home/csoeder/modules/bamaddrg/bamaddrg -b - -s {wildcards.sample}  > {output.multi_bam} ;
 			samtools index {output.multi_bam} 
 			""")
 
@@ -625,6 +636,11 @@ rule spliced_alignment_reporter:
 	message:
 		"Collecting metadata for the {wildcards.aligner} alignment of {wildcards.sample} to {wildcards.ref_genome}.... "
 	run:
+
+
+		uniqifier = subprocess.check_output(""" echo $(date +%N)*$(date +%N) | bc | md5sum | cut -f 1 -d " "  """  ,shell=True).decode().rstrip()[-10:].upper()		
+		tmp_folder = "/work/users/c/s/csoeder/" + uniqifier
+
  		ref_genome_idx=ref_genome_by_name[wildcards.ref_genome]['fai']
  		shell(""" which samtools """)
  		shell("samtools idxstats {input.bam_in} > {input.bam_in}.idxstats")
@@ -639,9 +655,9 @@ rule spliced_alignment_reporter:
 #		shell("""samtools view -F 4 {input.bam_in} | cut -f 13  | cut -f 3 -d ":" | sort | uniq -c | tr -s " " | awk -F " " '{{print$2"\t"$1}}' > {input.bam_in}.mapmult""")
 
 		shell(""" samtools view -F 0x4 {input.bam_in} | cut -f 1 | sort | uniq | wc -l > {input.bam_in}.maptCount """)
-		shell(""" samtools sort -n {input.bam_in} | samtools fixmate -m - -  | samtools sort - | samtools markdup -sS - - 1> /dev/null 2> {input.bam_in}.dupe """)# /dev/null 2> {input.bam_in}.dupe;""")
+		shell(""" samtools sort -T {tmp_folder}/srtN_ -n {input.bam_in} | samtools fixmate -m - -  | samtools -T {tmp_folder}/srt_ sort - | samtools markdup -sS - - 1> /dev/null 2> {input.bam_in}.dupe """)# /dev/null 2> {input.bam_in}.dupe;""")
 		shell(" python3 scripts/bam_summarizer.mapspliced.py -f {input.bam_in}.flagstat --mapped_count {input.bam_in}.maptCount -i {input.bam_in}.idxstats -g {input.bam_in}.split.genomcov -G {input.bam_in}.span.genomcov -d {input.bam_in}.dpthStats -D {input.bam_in}.dupe  -o {output.report_out} -t {wildcards.sample}")
-#		shell(" python3 scripts/bam_summarizer.mapspliced.py -f {input.bam_in}.flagstat --mapped_count {input.bam_in}.maptCount -i {input.bam_in}.idxstats -g {input.bam_in}.split.genomcov -G {input.bam_in}.span.genomcov -d {input.bam_in}.dpthStats -D {input.bam_in}.dupe -m {input.bam_in}.mapmult -o {output.report_out} -t {wildcards.sample}")
+
 
 
 
